@@ -5,8 +5,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Todo
 from ..schemas import TodoCreate, TodoRead, TodoUpdate
+from ..security import get_current_user
 
-router = APIRouter(prefix="/api/todos", tags=["todos"])
+router = APIRouter(
+    prefix="/api/todos",
+    tags=["todos"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("", response_model=list[TodoRead])
