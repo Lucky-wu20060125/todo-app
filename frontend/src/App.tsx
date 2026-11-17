@@ -8,6 +8,38 @@ import { TodoItem } from './components/TodoItem'
 import './App.css'
 
 const TOKEN_KEY = 'todo_token'
+const REMEMBER_KEY = 'todo_remember'
+
+function readStoredToken(): string | null {
+  const remembered = localStorage.getItem(REMEMBER_KEY) === '1'
+  if (!remembered) {
+    // Tokens saved by the old version had no explicit remember choice.
+    localStorage.removeItem(TOKEN_KEY)
+  }
+  const sessionToken = sessionStorage.getItem(TOKEN_KEY)
+  if (sessionToken) {
+    return sessionToken
+  }
+  return remembered ? localStorage.getItem(TOKEN_KEY) : null
+}
+
+function persistToken(token: string, remember: boolean) {
+  sessionStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REMEMBER_KEY)
+  if (remember) {
+    localStorage.setItem(TOKEN_KEY, token)
+    localStorage.setItem(REMEMBER_KEY, '1')
+    return
+  }
+  sessionStorage.setItem(TOKEN_KEY, token)
+}
+
+function clearStoredToken() {
+  sessionStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REMEMBER_KEY)
+}
 
 type Session = { token: string; revision: number }
 type EndSession = (session: Session, message?: string) => void
@@ -223,7 +255,7 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
 
 function App() {
   const [session, setSession] = useState<Session | null>(() => {
-    const token = localStorage.getItem(TOKEN_KEY)
+    const token = readStoredToken()
     return token ? { token, revision: 0 } : null
   })
   const [loginNotice, setLoginNotice] = useState('')
@@ -236,8 +268,8 @@ function App() {
     setSession(next)
   }, [])
 
-  const handleAuthenticated = useCallback((token: string) => {
-    localStorage.setItem(TOKEN_KEY, token)
+  const handleAuthenticated = useCallback((token: string, remember: boolean) => {
+    persistToken(token, remember)
     setLoginNotice('')
     replaceSession(token)
   }, [replaceSession])
@@ -245,8 +277,8 @@ function App() {
   const handleSessionEnd = useCallback<EndSession>((endingSession, message = '') => {
     // A late 401 from a previous workspace must never log out the current user.
     if (sessionRef.current !== endingSession) return
-    if (localStorage.getItem(TOKEN_KEY) === endingSession.token) {
-      localStorage.removeItem(TOKEN_KEY)
+    if (readStoredToken() === endingSession.token) {
+      clearStoredToken()
     }
     replaceSession(null)
     setLoginNotice(message)
@@ -254,8 +286,13 @@ function App() {
 
   useEffect(() => {
     function handleStorage(event: StorageEvent) {
-      if (event.storageArea !== localStorage || (event.key !== TOKEN_KEY && event.key !== null)) return
-      const token = event.key === null ? null : event.newValue
+      if (event.storageArea !== localStorage) return
+      if (event.key !== TOKEN_KEY && event.key !== REMEMBER_KEY && event.key !== null) return
+      // A tab with its own sessionStorage session is independent of remembered sessions.
+      if (sessionStorage.getItem(TOKEN_KEY)) return
+      const token = localStorage.getItem(REMEMBER_KEY) === '1'
+        ? localStorage.getItem(TOKEN_KEY)
+        : null
       if ((sessionRef.current?.token ?? null) === token) return
       replaceSession(token)
       setLoginNotice(token ? '' : '你已在其他页面退出，请重新登录。')

@@ -3,7 +3,7 @@ import { login, register } from '../api/auth'
 
 type LoginPageProps = {
   notice: string
-  onAuthenticated: (token: string) => void
+  onAuthenticated: (token: string, remember: boolean) => void
 }
 
 type AuthMode = 'login' | 'register'
@@ -14,6 +14,7 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [remember, setRemember] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -114,7 +115,7 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
       }
       const response = await login(cleanUsername, password, controller.signal)
       if (!controller.signal.aborted) {
-        onAuthenticated(response.access_token)
+        onAuthenticated(response.access_token, remember)
       }
     } catch (err) {
       if (controller.signal.aborted) return
@@ -261,6 +262,20 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
                   <span className="field-error" id="confirmation-error" aria-live="polite">{fieldErrors.confirmation}</span>
                 </label>
               )}
+
+              <label className="remember-field" htmlFor="remember-me">
+                <input
+                  id="remember-me"
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                  disabled={submitting}
+                />
+                <span className="remember-copy">
+                  <strong>记住我</strong>
+                  <small>仅限个人设备；不勾选时，关闭标签页或浏览器后需要重新登录。</small>
+                </span>
+              </label>
 
               {notice && <p className="notice" role="status">{notice}</p>}
               {error && <p className="error" role="alert">{error}</p>}
