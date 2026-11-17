@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Todo, User
-from ..schemas import TodoCreate, TodoRead, TodoUpdate
+from ..schemas import TodoCreate, TodoOrderUpdate, TodoRead, TodoUpdate
 from ..security import get_current_user
 
 router = APIRouter(prefix="/api/todos", tags=["todos"])
@@ -18,7 +18,7 @@ def list_todos(
     return db.scalars(
         select(Todo)
         .where(Todo.owner_id == current_user.id)
-        .order_by(Todo.created_at.desc(), Todo.id.desc())
+        .order_by(Todo.position.asc(), Todo.id.desc())
     ).all()
 
 
@@ -28,11 +28,40 @@ def create_todo(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    todo = Todo(title=payload.title, owner_id=current_user.id)
+    min_position = db.scalar(
+        select(func.min(Todo.position)).where(Todo.owner_id == current_user.id)
+    )
+    todo = Todo(
+        title=payload.title,
+        owner_id=current_user.id,
+        position=(min_position - 1 if min_position is not None else 0),
+    )
     db.add(todo)
     db.commit()
     db.refresh(todo)
     return todo
+
+
+@router.put("/order", response_model=list[TodoRead])
+def reorder_todos(
+    payload: TodoOrderUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    todos = db.scalars(select(Todo).where(Todo.owner_id == current_user.id)).all()
+    by_id = {todo.id: todo for todo in todos}
+    if (
+        len(payload.ids) != len(by_id)
+        or len(set(payload.ids)) != len(payload.ids)
+        or set(payload.ids) != set(by_id)
+    ):
+        raise HTTPException(status_code=400, detail="任务列表已变化，请刷新后重试")
+
+    for position, todo_id in enumerate(payload.ids):
+        by_id[todo_id].position = position
+
+    db.commit()
+    return [by_id[todo_id] for todo_id in payload.ids]
 
 
 @router.patch("/{todo_id}", response_model=TodoRead)

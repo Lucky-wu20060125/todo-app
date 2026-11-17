@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import User
-from ..schemas import Token, UserRead, UserRegister
+from ..schemas import AccountUpdate, AccountUpdateRead, Token, UserRead, UserRegister
 from ..security import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -50,3 +50,35 @@ def login(
 @router.get("/me", response_model=UserRead)
 def read_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.patch("/account", response_model=AccountUpdateRead)
+def update_account(
+    payload: AccountUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="当前密码错误")
+
+    if payload.username != current_user.username:
+        existing = db.scalar(select(User).where(User.username == payload.username))
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="用户名已被使用")
+        current_user.username = payload.username
+
+    if payload.password is not None:
+        current_user.hashed_password = hash_password(payload.password)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="用户名已被使用") from None
+    db.refresh(current_user)
+
+    return AccountUpdateRead(
+        user=UserRead.model_validate(current_user),
+        access_token=create_access_token(current_user.username),
+        token_type="bearer",
+    )

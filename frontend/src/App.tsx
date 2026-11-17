@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
 import { type User } from './api/auth'
 import { getBootstrap } from './api/bootstrap'
 import { ApiError } from './api/http'
-import { createTodo, deleteTodo, updateTodo, type Todo } from './api/todos'
+import {
+  createTodo,
+  deleteTodo,
+  reorderTodos,
+  updateTodo,
+  type Todo,
+  type TodoColor,
+} from './api/todos'
+import { AccountDialog } from './components/AccountDialog'
 import { LoginPage } from './components/LoginPage'
 import { TodoItem } from './components/TodoItem'
 import './App.css'
@@ -44,21 +52,31 @@ function clearStoredToken() {
 type Session = { token: string; revision: number }
 type EndSession = (session: Session, message?: string) => void
 
-function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: EndSession }) {
+function Workspace({
+  session,
+  onSessionEnd,
+  onAccountUpdated,
+}: {
+  session: Session
+  onSessionEnd: EndSession
+  onAccountUpdated: (token: string) => void
+}) {
   const [user, setUser] = useState<User | null>(null)
   const [todos, setTodos] = useState<Todo[]>([])
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
   const [error, setError] = useState('')
-  const [feedback, setFeedback] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [draftOpen, setDraftOpen] = useState(false)
   const [draftTitle, setDraftTitle] = useState('')
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ todo: Todo; x: number; y: number } | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
-  const pendingIdsRef = useRef(new Set<number>())
   const tempIdRef = useRef(-1)
   const draftOpenRef = useRef(false)
   const draftInputRef = useRef<HTMLInputElement>(null)
+  const pendingTogglesRef = useRef(new Set<number>())
+  const movingRef = useRef(false)
 
   const handleApiError = useCallback((err: unknown, controller: AbortController) => {
     if (controller.signal.aborted) return
@@ -105,13 +123,19 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
   }
 
   function markPending(id: number) {
-    pendingIdsRef.current.add(id)
-    setBusyIds(new Set(pendingIdsRef.current))
+    setBusyIds((current) => {
+      const next = new Set(current)
+      next.add(id)
+      return next
+    })
   }
 
   function clearPending(id: number) {
-    pendingIdsRef.current.delete(id)
-    setBusyIds(new Set(pendingIdsRef.current))
+    setBusyIds((current) => {
+      const next = new Set(current)
+      next.delete(id)
+      return next
+    })
   }
 
   function openDraft() {
@@ -148,6 +172,7 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
       id: tempId,
       title,
       completed: false,
+      color: 'none',
       created_at: now,
       updated_at: now,
     }
@@ -158,7 +183,6 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     markPending(tempId)
     setTodos((current) => [optimisticTodo, ...current])
     setError('')
-    setFeedback('已添加')
 
     try {
       const todo = await createTodo(session.token, title, controller.signal)
@@ -170,59 +194,48 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
       draftOpenRef.current = true
       setDraftOpen(true)
       setDraftTitle(title)
-      setFeedback('')
       handleApiError(err, controller)
     } finally {
       if (!controller.signal.aborted) clearPending(tempId)
     }
   }
 
-  function startItemRequest(id: number): AbortController | null {
-    const controller = controllerRef.current
-    if (!controller || controller.signal.aborted || loading || !user || pendingIdsRef.current.has(id)) return null
-    markPending(id)
-    setError('')
-    setFeedback('')
-    return controller
-  }
-
-  function finishItemRequest(id: number, controller: AbortController) {
-    if (!controller.signal.aborted) clearPending(id)
-  }
-
   async function handleToggle(todo: Todo) {
-    if (todo.id < 0) return
-    const controller = startItemRequest(todo.id)
-    if (!controller) return
+    if (todo.id < 0 || pendingTogglesRef.current.has(todo.id)) return
+    const controller = controllerRef.current
+    if (!controller || controller.signal.aborted || loading || !user) return
 
+    pendingTogglesRef.current.add(todo.id)
     const nextCompleted = !todo.completed
     setTodos((current) =>
       current.map((item) => item.id === todo.id ? { ...item, completed: nextCompleted } : item),
     )
-    setFeedback(nextCompleted ? '已标记完成' : '已标记未完成')
 
     try {
       const updated = await updateTodo(session.token, todo.id, {
         completed: nextCompleted,
       }, controller.signal)
       if (controller.signal.aborted) return
-      setTodos((current) => current.map((item) => item.id === updated.id ? updated : item))
+      setTodos((current) => current.map((item) =>
+        item.id === updated.id
+          ? { ...item, completed: updated.completed, updated_at: updated.updated_at }
+          : item,
+      ))
     } catch (err) {
       if (controller.signal.aborted) return
       setTodos((current) =>
         current.map((item) => item.id === todo.id ? { ...item, completed: todo.completed } : item),
       )
-      setFeedback('')
       handleApiError(err, controller)
     } finally {
-      finishItemRequest(todo.id, controller)
+      pendingTogglesRef.current.delete(todo.id)
     }
   }
 
   async function handleRename(todo: Todo, title: string) {
-    if (todo.id < 0) return
-    const controller = startItemRequest(todo.id)
-    if (!controller) return
+    if (todo.id < 0 || title === todo.title) return
+    const controller = controllerRef.current
+    if (!controller || controller.signal.aborted || loading || !user) return
 
     setTodos((current) =>
       current.map((item) => item.id === todo.id ? { ...item, title } : item),
@@ -231,17 +244,17 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     try {
       const updated = await updateTodo(session.token, todo.id, { title }, controller.signal)
       if (controller.signal.aborted) return
-      setTodos((current) => current.map((item) => item.id === updated.id ? updated : item))
-      setFeedback('已保存')
+      setTodos((current) => current.map((item) =>
+        item.id === updated.id
+          ? { ...item, title: updated.title, updated_at: updated.updated_at }
+          : item,
+      ))
     } catch (err) {
       if (controller.signal.aborted) return
       setTodos((current) =>
         current.map((item) => item.id === todo.id ? { ...item, title: todo.title } : item),
       )
-      setFeedback('')
       handleApiError(err, controller)
-    } finally {
-      finishItemRequest(todo.id, controller)
     }
   }
 
@@ -256,11 +269,9 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
 
     setTodos((current) => current.filter((item) => item.id !== id))
     setError('')
-    setFeedback('')
 
     try {
       await deleteTodo(session.token, id, controller.signal)
-      if (!controller.signal.aborted) setFeedback('已删除')
     } catch (err) {
       if (controller.signal.aborted) return
       setTodos((current) => {
@@ -270,6 +281,78 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
       })
       handleApiError(err, controller)
     }
+  }
+
+  async function handleColor(todo: Todo, color: TodoColor) {
+    setContextMenu(null)
+    if (todo.id < 0 || todo.color === color) return
+    const controller = controllerRef.current
+    if (!controller || controller.signal.aborted || loading || !user) return
+
+    setTodos((current) =>
+      current.map((item) => item.id === todo.id ? { ...item, color } : item),
+    )
+
+    try {
+      const updated = await updateTodo(session.token, todo.id, { color }, controller.signal)
+      if (controller.signal.aborted) return
+      setTodos((current) => current.map((item) =>
+        item.id === updated.id
+          ? { ...item, color: updated.color, updated_at: updated.updated_at }
+          : item,
+      ))
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setTodos((current) =>
+        current.map((item) => item.id === todo.id ? { ...item, color: todo.color } : item),
+      )
+      handleApiError(err, controller)
+    }
+  }
+
+  async function handleMove(todo: Todo, direction: 'up' | 'down') {
+    if (todo.id < 0 || movingRef.current) return
+    const controller = controllerRef.current
+    if (!controller || controller.signal.aborted || loading || !user) return
+
+    const index = todos.findIndex((item) => item.id === todo.id)
+    const target = direction === 'up' ? index - 1 : index + 1
+    if (index < 0 || target < 0 || target >= todos.length) return
+
+    const previous = todos
+    const next = [...todos]
+    const [moved] = next.splice(index, 1)
+    next.splice(target, 0, moved)
+
+    setTodos(next)
+    setError('')
+    movingRef.current = true
+
+    try {
+      const ordered = await reorderTodos(
+        session.token,
+        next.map((item) => item.id),
+        controller.signal,
+      )
+      if (!controller.signal.aborted) setTodos(ordered)
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        setTodos(previous)
+        handleApiError(err, controller)
+      }
+    } finally {
+      movingRef.current = false
+    }
+  }
+
+  function handleContextMenu(todo: Todo, event: MouseEvent<HTMLLIElement>) {
+    if (event.target instanceof HTMLInputElement) return
+    event.preventDefault()
+    setContextMenu({
+      todo,
+      x: Math.min(event.clientX, window.innerWidth - 168),
+      y: Math.min(event.clientY, window.innerHeight - 200),
+    })
   }
 
   const remaining = todos.filter((todo) => !todo.completed).length
@@ -285,12 +368,24 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
           <span>待办任务清单</span>
         </div>
         <div className="account-bar">
-          <span className="account-name">{user ? `当前账号：${user.username}` : '加载中…'}</span>
+          <button
+            className="account-name"
+            type="button"
+            onClick={() => setAccountOpen(true)}
+            disabled={!user}
+          >
+            {user ? `当前账号：${user.username}` : '加载中…'}
+          </button>
           <button className="button button-secondary logout" type="button" onClick={handleLogout}>退出登录</button>
         </div>
       </header>
 
       <section className="todo-panel paper-panel workspace-card" aria-busy={loading}>
+        <div className="progress-meta">
+          <span>总数 {ready ? todos.length : '—'}</span>
+          <span>已完成 {ready ? completed : '—'}</span>
+          <span>待完成 {ready ? remaining : '—'}</span>
+        </div>
         <div className="progress-strip">
           <progress value={completed} max={todos.length || 1} aria-label="完成进度" />
           <strong>{ready ? `${completion}%` : '—'}</strong>
@@ -300,7 +395,6 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
         </div>
 
         {error && <p className="error" role="alert">{error}</p>}
-        <p className="workspace-feedback" role="status" aria-live="polite">{feedback}</p>
 
         {loading ? (
           <div className="empty-state" role="status"><span className="loading-mark" aria-hidden="true" /><p>正在加载…</p></div>
@@ -344,19 +438,72 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
             {todos.length === 0 && !draftOpen && (
               <li className="todo-empty">暂无待办</li>
             )}
-            {todos.map((todo) => (
+            {todos.map((todo, index) => (
               <TodoItem
                 key={`${todo.id}:${todo.title}`}
                 todo={todo}
                 busy={busyIds.has(todo.id)}
+                canMoveUp={index > 0}
+                canMoveDown={index < todos.length - 1}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
                 onRename={handleRename}
+                onMove={handleMove}
+                onContextMenu={handleContextMenu}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {contextMenu && (
+        <>
+          <div
+            className="context-backdrop"
+            onMouseDown={() => setContextMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setContextMenu(null)
+            }}
+          />
+          <div
+            className="color-menu"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            role="menu"
+            aria-label="任务颜色"
+          >
+            {[
+              { value: 'red' as TodoColor, label: '淡红' },
+              { value: 'green' as TodoColor, label: '淡绿' },
+              { value: 'yellow' as TodoColor, label: '淡黄' },
+              { value: 'none' as TodoColor, label: '默认' },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className="color-option"
+                role="menuitem"
+                onClick={() => handleColor(contextMenu.todo, option.value)}
+              >
+                <span className={`color-dot color-${option.value}`} aria-hidden="true" />
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {accountOpen && user && (
+        <AccountDialog
+          user={user}
+          token={session.token}
+          onClose={() => setAccountOpen(false)}
+          onUpdated={(_updatedUser, token) => {
+            setAccountOpen(false)
+            onAccountUpdated(token)
+          }}
+        />
+      )}
     </main>
   )
 }
@@ -378,6 +525,12 @@ function App() {
 
   const handleAuthenticated = useCallback((token: string, remember: boolean) => {
     persistToken(token, remember)
+    setLoginNotice('')
+    replaceSession(token)
+  }, [replaceSession])
+
+  const handleAccountUpdated = useCallback((token: string) => {
+    persistToken(token, localStorage.getItem(REMEMBER_KEY) === '1')
     setLoginNotice('')
     replaceSession(token)
   }, [replaceSession])
@@ -409,10 +562,17 @@ function App() {
     return () => window.removeEventListener('storage', handleStorage)
   }, [replaceSession])
 
-  // A new workspace owns all user data, drafts, feedback and pending operations.
+  // A new workspace owns all user data, drafts and pending operations.
   // The revision also isolates consecutive sessions that happen to share a token.
   return session
-    ? <Workspace key={session.revision} session={session} onSessionEnd={handleSessionEnd} />
+    ? (
+      <Workspace
+        key={session.revision}
+        session={session}
+        onSessionEnd={handleSessionEnd}
+        onAccountUpdated={handleAccountUpdated}
+      />
+    )
     : <LoginPage notice={loginNotice} onAuthenticated={handleAuthenticated} />
 }
 

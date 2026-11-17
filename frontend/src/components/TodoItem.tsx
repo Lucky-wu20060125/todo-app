@@ -1,15 +1,29 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type MouseEvent } from 'react'
 import type { Todo } from '../api/todos'
 
 type TodoItemProps = {
   todo: Todo
   busy: boolean
+  canMoveUp: boolean
+  canMoveDown: boolean
   onToggle: (todo: Todo) => void
   onDelete: (id: number) => void
   onRename: (todo: Todo, title: string) => void
+  onMove: (todo: Todo, direction: 'up' | 'down') => void
+  onContextMenu: (todo: Todo, event: MouseEvent<HTMLLIElement>) => void
 }
 
-export function TodoItem({ todo, busy, onToggle, onDelete, onRename }: TodoItemProps) {
+export function TodoItem({
+  todo,
+  busy,
+  canMoveUp,
+  canMoveDown,
+  onToggle,
+  onDelete,
+  onRename,
+  onMove,
+  onContextMenu,
+}: TodoItemProps) {
   const [title, setTitle] = useState(todo.title)
   const cancelRef = useRef(false)
   const committedRef = useRef(false)
@@ -31,7 +45,11 @@ export function TodoItem({ todo, busy, onToggle, onDelete, onRename }: TodoItemP
   }
 
   return (
-    <li className={`todo${todo.completed ? ' completed' : ''}${busy ? ' is-busy' : ''}`} aria-busy={busy}>
+    <li
+      className={`todo color-${todo.color}${todo.completed ? ' completed' : ''}${busy ? ' is-busy' : ''}`}
+      aria-busy={busy}
+      onContextMenu={(event) => onContextMenu(todo, event)}
+    >
       <input
         type="checkbox"
         className="todo-check"
@@ -61,6 +79,22 @@ export function TodoItem({ todo, busy, onToggle, onDelete, onRename }: TodoItemP
         maxLength={200}
         aria-label={`编辑 ${todo.title}`}
       />
+      <span className="todo-move">
+        <button
+          type="button"
+          className="move-button"
+          onClick={() => onMove(todo, 'up')}
+          disabled={busy || !canMoveUp}
+          aria-label={`上移 ${todo.title}`}
+        >↑</button>
+        <button
+          type="button"
+          className="move-button"
+          onClick={() => onMove(todo, 'down')}
+          disabled={busy || !canMoveDown}
+          aria-label={`下移 ${todo.title}`}
+        >↓</button>
+      </span>
       <button
         type="button"
         className="button delete"

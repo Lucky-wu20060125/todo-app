@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -14,6 +14,12 @@ class Todo(Base):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     completed: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
+    )
+    color: Mapped[str] = mapped_column(
+        String(16), default="none", server_default="none"
+    )
+    position: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

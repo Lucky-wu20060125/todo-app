@@ -13,6 +13,16 @@
   margin: 0 auto;
 }
 
+.progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: rgba(16, 16, 20, 0.65);
+}
+
 .progress-strip {
   display: flex;
   align-items: center;
@@ -146,6 +156,19 @@
   padding: 6px 16px;
   box-shadow: var(--shadow-sm);
   transform: rotate(1.5deg);
+  cursor: pointer;
+  font: inherit;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.account-name:hover:not(:disabled) {
+  transform: translate(-1px, -1px) rotate(1.5deg);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.account-name:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .edition-label {
@@ -736,20 +759,24 @@
 .todo-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 4px 0 0;
   display: grid;
   gap: 14px;
+  max-height: clamp(240px, 55vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .todo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
   border: 3px solid var(--ink);
   border-radius: 14px;
   background: var(--white);
-  padding: 14px 16px;
+  padding: 12px 14px;
   box-shadow: var(--shadow-sm);
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
@@ -804,10 +831,12 @@
 .todo-edit {
   flex: 1;
   min-width: 0;
-  border: 2px solid transparent;
+  width: 100%;
+  border: 2px solid rgba(16, 16, 20, 0.18);
   border-radius: 8px;
-  background: transparent;
-  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 9px 10px;
+  font-size: 1.1rem;
   font-weight: 800;
   color: var(--ink);
   outline: none;
@@ -845,6 +874,160 @@
   text-align: center;
   font-weight: 700;
   color: rgba(16, 16, 20, 0.6);
+}
+
+.todo-move {
+  display: grid;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.move-button {
+  width: 24px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--white);
+  font-size: 0.8rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.move-button:hover:not(:disabled) {
+  background: var(--paper);
+}
+
+.move-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.todo.color-red {
+  background: #ffe4e6;
+}
+
+.todo.color-green {
+  background: #dcfce7;
+}
+
+.todo.color-yellow {
+  background: #fef9c3;
+}
+
+.todo.color-none {
+  background: var(--white);
+}
+
+.todo.completed.color-red {
+  background: #ffe4e6;
+}
+
+.todo.completed.color-green {
+  background: #dcfce7;
+}
+
+.todo.completed.color-yellow {
+  background: #fef9c3;
+}
+
+.todo.completed.color-none {
+  background: #f2efe2;
+}
+
+.context-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.color-menu {
+  position: fixed;
+  z-index: 61;
+  width: 150px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  background: var(--white);
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.color-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.color-option:hover {
+  background: #f1f5f9;
+}
+
+.color-dot {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+}
+
+.color-dot.color-red {
+  background: #fecdd3;
+}
+
+.color-dot.color-green {
+  background: #bbf7d0;
+}
+
+.color-dot.color-yellow {
+  background: #fef08a;
+}
+
+.color-dot.color-none {
+  background: var(--white);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(16, 16, 20, 0.45);
+}
+
+.account-dialog {
+  width: min(440px, 100%);
+  padding: 26px;
+  background: var(--white);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: 8px 8px 0 var(--blue);
+}
+
+.account-dialog h2 {
+  margin-bottom: 16px;
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .todo-title {

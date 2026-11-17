@@ -18,7 +18,7 @@ def bootstrap(
     todos = db.scalars(
         select(Todo)
         .where(Todo.owner_id == current_user.id)
-        .order_by(Todo.created_at.desc(), Todo.id.desc())
+        .order_by(Todo.position.asc(), Todo.id.desc())
     ).all()
     return BootstrapRead(
         user=UserRead.model_validate(current_user),

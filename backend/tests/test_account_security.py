@@ -102,6 +102,20 @@ class AccountSecurityTests(unittest.TestCase):
     def test_bootstrap_requires_authentication(self):
         self.assertEqual(self.client.get("/api/bootstrap").status_code, 401)
 
+    def test_bootstrap_uses_priority_order(self):
+        for title in ("First", "Second", "Third"):
+            response = self.client.post(
+                "/api/todos", json={"title": title}, headers=self.alice
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+
+        response = self.client.get("/api/bootstrap", headers=self.alice)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [todo["title"] for todo in response.json()["todos"]],
+            ["Third", "Second", "First"],
+        )
+
     def test_owner_can_update_and_delete_their_task(self):
         todo_id = self.create_alice_todo()
         response = self.client.patch(
@@ -131,6 +145,160 @@ class AccountSecurityTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.client.get("/api/todos", headers=self.bob).json(), [])
+
+    def test_color_update_is_persisted_and_private(self):
+        todo_id = self.create_alice_todo()
+        response = self.client.patch(
+            f"/api/todos/{todo_id}", json={"color": "red"}, headers=self.alice
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["color"], "red")
+        self.assertEqual(
+            self.client.get("/api/todos", headers=self.alice).json()[0]["color"], "red"
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/todos/{todo_id}", json={"color": "green"}, headers=self.bob
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.patch(
+                f"/api/todos/{todo_id}", json={"color": "purple"}, headers=self.alice
+            ).status_code,
+            422,
+        )
+
+    def test_reorder_updates_priority_order(self):
+        first = self.client.post(
+            "/api/todos", json={"title": "First"}, headers=self.alice
+        ).json()
+        second = self.client.post(
+            "/api/todos", json={"title": "Second"}, headers=self.alice
+        ).json()
+        third = self.client.post(
+            "/api/todos", json={"title": "Third"}, headers=self.alice
+        ).json()
+
+        listed = self.client.get("/api/todos", headers=self.alice).json()
+        self.assertEqual([todo["title"] for todo in listed], ["Third", "Second", "First"])
+
+        order = [first["id"], second["id"], third["id"]]
+        response = self.client.put(
+            "/api/todos/order", json={"ids": order}, headers=self.alice
+        )
+        self.assertEqual(response.status_code, 200)
+        listed = self.client.get("/api/todos", headers=self.alice).json()
+        self.assertEqual([todo["title"] for todo in listed], ["First", "Second", "Third"])
+
+        bob_todo = self.client.post(
+            "/api/todos", json={"title": "Bob"}, headers=self.bob
+        ).json()
+        self.assertEqual(
+            self.client.put(
+                "/api/todos/order",
+                json={"ids": [first["id"], second["id"], bob_todo["id"]]},
+                headers=self.alice,
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.put("/api/todos/order", json={"ids": order}).status_code,
+            401,
+        )
+
+    def test_account_update_changes_username_and_password(self):
+        response = self.client.patch(
+            "/api/auth/account",
+            json={
+                "current_password": "test-password-123",
+                "username": "alice-new",
+                "password": "new-password-456",
+            },
+            headers=self.alice,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["user"]["username"], "alice-new")
+        new_token = body["access_token"]
+        new_headers = {"Authorization": f"Bearer {new_token}"}
+        self.assertEqual(self.client.get("/api/todos", headers=new_headers).status_code, 200)
+
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login",
+                data={"username": "alice", "password": "test-password-123"},
+            ).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login",
+                data={"username": "alice-new", "password": "new-password-456"},
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login",
+                data={"username": "alice-new", "password": "test-password-123"},
+            ).status_code,
+            401,
+        )
+
+    def test_account_update_rejects_wrong_password(self):
+        response = self.client.patch(
+            "/api/auth/account",
+            json={
+                "current_password": "wrong-password",
+                "username": "alice-new",
+            },
+            headers=self.alice,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_account_update_rejects_duplicate_username(self):
+        response = self.client.patch(
+            "/api/auth/account",
+            json={
+                "current_password": "test-password-123",
+                "username": "bob",
+            },
+            headers=self.alice,
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login",
+                data={"username": "alice", "password": "test-password-123"},
+            ).status_code,
+            200,
+        )
+
+    def test_account_update_requires_authentication(self):
+        response = self.client.patch(
+            "/api/auth/account",
+            json={"current_password": "x", "username": "nobody"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_account_update_can_keep_password(self):
+        response = self.client.patch(
+            "/api/auth/account",
+            json={
+                "current_password": "test-password-123",
+                "username": "alice-renamed",
+            },
+            headers=self.alice,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login",
+                data={"username": "alice-renamed", "password": "test-password-123"},
+            ).status_code,
+            200,
+        )
 
     def test_legacy_unowned_todos_are_not_public(self):
         with Session(self.engine) as db:

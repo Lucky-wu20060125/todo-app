@@ -41,3 +41,25 @@ export function login(
 export function getMe(token: string, signal?: AbortSignal): Promise<User> {
   return request<User>('/api/auth/me', { signal }, token)
 }
+
+export type AccountUpdateResponse = {
+  user: User
+  access_token: string
+  token_type: string
+}
+
+export function updateAccount(
+  token: string,
+  payload: { current_password: string; username: string; password?: string },
+  signal?: AbortSignal,
+): Promise<AccountUpdateResponse> {
+  return request<AccountUpdateResponse>(
+    '/api/auth/account',
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+      signal,
+    },
+    token,
+  )
+}

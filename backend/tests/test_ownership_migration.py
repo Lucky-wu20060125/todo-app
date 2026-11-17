@@ -44,13 +44,17 @@ class OwnershipMigrationTests(unittest.TestCase):
         self.engine.dispose()
         columns = {column["name"] for column in inspect(self.engine).get_columns("todos")}
         self.assertIn("owner_id", columns)
+        self.assertIn("color", columns)
+        self.assertIn("position", columns)
         with self.engine.connect() as connection:
             row = connection.execute(
-                text("SELECT title, completed, owner_id FROM todos WHERE id = 42")
+                text("SELECT title, completed, owner_id, color, position FROM todos WHERE id = 42")
             ).one()
             self.assertEqual(row.title, "Legacy task")
             self.assertFalse(row.completed)
             self.assertIsNone(row.owner_id)
+            self.assertEqual(row.color, "none")
+            self.assertEqual(row.position, 0)
             self.assertEqual(
                 connection.scalar(text("SELECT username FROM users WHERE id = 7")),
                 "original-user",

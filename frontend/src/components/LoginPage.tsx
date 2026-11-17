@@ -145,7 +145,6 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
         </div>
 
         <h2 id="auth-title">{isRegister ? '注册账号' : '登录'}</h2>
-        <p className="summary">{isRegister ? '创建一个新账号。' : '使用你的账号登录。'}</p>
 
         <div className="auth-tabs" role="tablist" aria-label="账号入口" onKeyDown={handleTabKeys}>
           <button
