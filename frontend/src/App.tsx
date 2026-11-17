@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
 import { type User } from './api/auth'
 import { getBootstrap } from './api/bootstrap'
 import { ApiError } from './api/http'
@@ -52,6 +52,15 @@ function clearStoredToken() {
 type Session = { token: string; revision: number }
 type EndSession = (session: Session, message?: string) => void
 
+type ToggleJob = {
+  desired: boolean
+  confirmed: boolean
+  version: number
+  sentVersion: number
+  running: boolean
+  timer: number | null
+}
+
 function Workspace({
   session,
   onSessionEnd,
@@ -75,8 +84,15 @@ function Workspace({
   const tempIdRef = useRef(-1)
   const draftOpenRef = useRef(false)
   const draftInputRef = useRef<HTMLInputElement>(null)
-  const pendingTogglesRef = useRef(new Set<number>())
-  const movingRef = useRef(false)
+  const listRef = useRef<HTMLUListElement>(null)
+  const todosRef = useRef<Todo[]>([])
+  const toggleJobsRef = useRef(new Map<number, ToggleJob>())
+  const dragStartTodosRef = useRef<Todo[]>([])
+  const draggingIdRef = useRef<number | null>(null)
+  const dragPointerYRef = useRef(0)
+  const reorderBusyRef = useRef(false)
+  const pendingReorderRef = useRef<{ order: Todo[]; fallback: Todo[] } | null>(null)
+  const [draggingId, setDraggingId] = useState<number | null>(null)
 
   const handleApiError = useCallback((err: unknown, controller: AbortController) => {
     if (controller.signal.aborted) return
@@ -110,6 +126,18 @@ function Workspace({
   useEffect(() => {
     if (draftOpen) draftInputRef.current?.focus()
   }, [draftOpen])
+
+  useLayoutEffect(() => {
+    todosRef.current = todos
+  }, [todos])
+
+  useEffect(() => () => {
+    toggleJobsRef.current.forEach((job) => {
+      if (job.timer !== null) window.clearTimeout(job.timer)
+    })
+    toggleJobsRef.current.clear()
+    document.body.classList.remove('is-sorting')
+  }, [])
 
   function handleLogout() {
     controllerRef.current?.abort()
@@ -200,35 +228,90 @@ function Workspace({
     }
   }
 
-  async function handleToggle(todo: Todo) {
-    if (todo.id < 0 || pendingTogglesRef.current.has(todo.id)) return
+  function handleToggle(todo: Todo) {
+    if (todo.id < 0) return
     const controller = controllerRef.current
     if (!controller || controller.signal.aborted || loading || !user) return
 
-    pendingTogglesRef.current.add(todo.id)
-    const nextCompleted = !todo.completed
-    setTodos((current) =>
-      current.map((item) => item.id === todo.id ? { ...item, completed: nextCompleted } : item),
+    const current = todosRef.current.find((item) => item.id === todo.id) ?? todo
+    const nextCompleted = !current.completed
+
+    setTodos((currentTodos) =>
+      currentTodos.map((item) => item.id === todo.id ? { ...item, completed: nextCompleted } : item),
     )
+    setError('')
+
+    let job = toggleJobsRef.current.get(todo.id)
+    if (!job) {
+      job = {
+        desired: nextCompleted,
+        confirmed: current.completed,
+        version: 0,
+        sentVersion: 0,
+        running: false,
+        timer: null,
+      }
+      toggleJobsRef.current.set(todo.id, job)
+    }
+    job.desired = nextCompleted
+    job.version += 1
+    if (job.timer !== null) {
+      window.clearTimeout(job.timer)
+      job.timer = null
+    }
+    if (!job.running) {
+      job.timer = window.setTimeout(() => {
+        job.timer = null
+        void flushToggle(todo.id, controller)
+      }, 90)
+    }
+  }
+
+  async function flushToggle(id: number, controller: AbortController) {
+    const job = toggleJobsRef.current.get(id)
+    if (!job || job.running) return
+    job.running = true
 
     try {
-      const updated = await updateTodo(session.token, todo.id, {
-        completed: nextCompleted,
-      }, controller.signal)
-      if (controller.signal.aborted) return
-      setTodos((current) => current.map((item) =>
-        item.id === updated.id
-          ? { ...item, completed: updated.completed, updated_at: updated.updated_at }
-          : item,
-      ))
+      while (job.sentVersion < job.version) {
+        const version = job.version
+        const desired = job.desired
+        const updated = await updateTodo(
+          session.token,
+          id,
+          { completed: desired },
+          controller.signal,
+        )
+        if (controller.signal.aborted) return
+        job.sentVersion = version
+        job.confirmed = updated.completed
+        setTodos((current) => current.map((item) => {
+          if (item.id !== id) return item
+          return {
+            ...item,
+            completed: job.version === version ? updated.completed : item.completed,
+            updated_at: updated.updated_at,
+          }
+        }))
+      }
+      if (toggleJobsRef.current.get(id) === job) {
+        toggleJobsRef.current.delete(id)
+      }
     } catch (err) {
       if (controller.signal.aborted) return
+      const confirmed = job.confirmed
       setTodos((current) =>
-        current.map((item) => item.id === todo.id ? { ...item, completed: todo.completed } : item),
+        current.map((item) => item.id === id ? { ...item, completed: confirmed } : item),
       )
+      if (toggleJobsRef.current.get(id) === job) {
+        toggleJobsRef.current.delete(id)
+      }
       handleApiError(err, controller)
     } finally {
-      pendingTogglesRef.current.delete(todo.id)
+      job.running = false
+      if (controller.signal.aborted && toggleJobsRef.current.get(id) === job) {
+        toggleJobsRef.current.delete(id)
+      }
     }
   }
 
@@ -263,9 +346,10 @@ function Workspace({
     const controller = controllerRef.current
     if (!controller || controller.signal.aborted || loading || !user) return
 
-    const index = todos.findIndex((item) => item.id === id)
+    const current = todosRef.current
+    const index = current.findIndex((item) => item.id === id)
     if (index < 0) return
-    const removed = todos[index]
+    const removed = current[index]
 
     setTodos((current) => current.filter((item) => item.id !== id))
     setError('')
@@ -310,44 +394,130 @@ function Workspace({
     }
   }
 
-  async function handleMove(todo: Todo, direction: 'up' | 'down') {
-    if (todo.id < 0 || movingRef.current) return
-    const controller = controllerRef.current
-    if (!controller || controller.signal.aborted || loading || !user) return
-
-    const index = todos.findIndex((item) => item.id === todo.id)
-    const target = direction === 'up' ? index - 1 : index + 1
-    if (index < 0 || target < 0 || target >= todos.length) return
-
-    const previous = todos
-    const next = [...todos]
-    const [moved] = next.splice(index, 1)
-    next.splice(target, 0, moved)
-
-    setTodos(next)
+  function handleDragStart(todo: Todo, clientY: number) {
+    if (loading || !user || todo.id < 0) return
+    if (todosRef.current.some((item) => item.id < 0)) return
+    dragStartTodosRef.current = todosRef.current
+    draggingIdRef.current = todo.id
+    dragPointerYRef.current = clientY
+    setDraggingId(todo.id)
+    setContextMenu(null)
     setError('')
-    movingRef.current = true
+    document.body.classList.add('is-sorting')
+  }
 
+  function reorderToPointer(clientY: number) {
+    const list = listRef.current
+    const id = draggingIdRef.current
+    if (!list || id === null) return
+    const rows = Array.from(list.querySelectorAll<HTMLElement>('[data-todo-id]'))
+    if (rows.length === 0) return
+
+    const current = todosRef.current
+    const from = current.findIndex((item) => item.id === id)
+    if (from < 0) return
+
+    let target = rows.length
+    for (let index = 0; index < rows.length; index += 1) {
+      const rect = rows[index].getBoundingClientRect()
+      if (clientY < rect.top + rect.height / 2) {
+        target = index
+        break
+      }
+    }
+    const insertAt = target > from ? target - 1 : target
+    if (insertAt === from) return
+
+    const next = [...current]
+    const [moved] = next.splice(from, 1)
+    next.splice(insertAt, 0, moved)
+    todosRef.current = next
+    setTodos(next)
+  }
+
+  function handleDragMove(clientY: number) {
+    if (draggingIdRef.current === null) return
+    dragPointerYRef.current = clientY
+    reorderToPointer(clientY)
+  }
+
+  function handleDragEnd(cancelled: boolean) {
+    const id = draggingIdRef.current
+    draggingIdRef.current = null
+    setDraggingId(null)
+    document.body.classList.remove('is-sorting')
+    if (id === null) return
+
+    if (cancelled) {
+      const fallback = dragStartTodosRef.current
+      todosRef.current = fallback
+      setTodos(fallback)
+      return
+    }
+
+    const order = todosRef.current
+    const fallback = dragStartTodosRef.current
+    const unchanged = order.length === fallback.length
+      && order.every((item, index) => item.id === fallback[index].id)
+    if (!unchanged) void persistOrder(order, fallback)
+  }
+
+  async function persistOrder(order: Todo[], fallback: Todo[]) {
+    if (reorderBusyRef.current) {
+      pendingReorderRef.current = { order, fallback }
+      return
+    }
+    const controller = controllerRef.current
+    if (!controller || controller.signal.aborted) return
+
+    reorderBusyRef.current = true
     try {
-      const ordered = await reorderTodos(
-        session.token,
-        next.map((item) => item.id),
-        controller.signal,
-      )
-      if (!controller.signal.aborted) setTodos(ordered)
+      await reorderTodos(session.token, order.map((item) => item.id), controller.signal)
     } catch (err) {
       if (!controller.signal.aborted) {
-        setTodos(previous)
+        if (!pendingReorderRef.current) {
+          todosRef.current = fallback
+          setTodos(fallback)
+        }
         handleApiError(err, controller)
       }
     } finally {
-      movingRef.current = false
+      reorderBusyRef.current = false
+      const pending = pendingReorderRef.current
+      pendingReorderRef.current = null
+      if (pending && !controller.signal.aborted) {
+        void persistOrder(pending.order, pending.fallback)
+      }
     }
   }
 
+  useEffect(() => {
+    if (draggingId === null) return
+    let frame = 0
+
+    function step() {
+      const list = listRef.current
+      if (list) {
+        const rect = list.getBoundingClientRect()
+        const pointerY = dragPointerYRef.current
+        const edge = 56
+        if (pointerY < rect.top + edge) {
+          list.scrollTop -= Math.min(20, (rect.top + edge - pointerY) / 2)
+        } else if (pointerY > rect.bottom - edge) {
+          list.scrollTop += Math.min(20, (pointerY - (rect.bottom - edge)) / 2)
+        }
+        reorderToPointer(pointerY)
+      }
+      frame = window.requestAnimationFrame(step)
+    }
+
+    frame = window.requestAnimationFrame(step)
+    return () => window.cancelAnimationFrame(frame)
+  }, [draggingId])
+
   function handleContextMenu(todo: Todo, event: MouseEvent<HTMLLIElement>) {
-    if (event.target instanceof HTMLInputElement) return
     event.preventDefault()
+    if (draggingIdRef.current !== null) return
     setContextMenu({
       todo,
       x: Math.min(event.clientX, window.innerWidth - 168),
@@ -358,6 +528,7 @@ function Workspace({
   const remaining = todos.filter((todo) => !todo.completed).length
   const completed = todos.length - remaining
   const ready = Boolean(user) && !loading
+  const hasTemp = todos.some((todo) => todo.id < 0)
   const completion = todos.length ? Math.round(completed / todos.length * 100) : 0
 
   return (
@@ -401,7 +572,7 @@ function Workspace({
         ) : !ready ? (
           <div className="empty-state"><p>加载失败。</p><button className="button button-secondary" type="button" onClick={handleRetryLoad}>重新加载</button></div>
         ) : (
-          <ul className="todo-list">
+          <ul className="todo-list" ref={listRef}>
             {draftOpen && (
               <li className="todo todo-draft">
                 <span className="todo-check-placeholder" aria-hidden="true" />
@@ -438,17 +609,18 @@ function Workspace({
             {todos.length === 0 && !draftOpen && (
               <li className="todo-empty">暂无待办</li>
             )}
-            {todos.map((todo, index) => (
+            {todos.map((todo) => (
               <TodoItem
-                key={`${todo.id}:${todo.title}`}
+                key={todo.id}
                 todo={todo}
                 busy={busyIds.has(todo.id)}
-                canMoveUp={index > 0}
-                canMoveDown={index < todos.length - 1}
+                canDrag={ready && todo.id > 0 && !hasTemp}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
                 onRename={handleRename}
-                onMove={handleMove}
+                onDragStart={handleDragStart}
+                onDragMove={handleDragMove}
+                onDragEnd={handleDragEnd}
                 onContextMenu={handleContextMenu}
               />
             ))}

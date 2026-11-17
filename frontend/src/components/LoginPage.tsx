@@ -138,13 +138,11 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
 
   return (
     <main className="login-page login-page-simple">
-      <section className="auth-card" aria-labelledby="auth-title">
+      <section className="auth-card" aria-label="登录或注册">
         <div className="auth-brand">
           <span className="brand-mark" aria-hidden="true"><span /></span>
           <span>待办任务清单</span>
         </div>
-
-        <h2 id="auth-title">{isRegister ? '注册账号' : '登录'}</h2>
 
         <div className="auth-tabs" role="tablist" aria-label="账号入口" onKeyDown={handleTabKeys}>
           <button
