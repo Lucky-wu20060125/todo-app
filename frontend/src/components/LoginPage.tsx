@@ -141,15 +141,11 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="auth-brand">
           <span className="brand-mark" aria-hidden="true"><span /></span>
-          <span>待办任务清单<small>MAKE IT HAPPEN.</small></span>
+          <span>待办任务清单</span>
         </div>
 
-        <div className="card-heading">
-          <span className="eyebrow">READY, SET, GO!</span>
-          <span className="mini-sticker">即刻开始</span>
-        </div>
-        <h2 id="auth-title">{isRegister ? '新朋友，欢迎！' : '欢迎回来！'}</h2>
-        <p className="summary">{isRegister ? '创建账号，开启你的第一张清单。' : '登录账号，接着完成你的小目标。'}</p>
+        <h2 id="auth-title">{isRegister ? '注册账号' : '登录'}</h2>
+        <p className="summary">{isRegister ? '创建一个新账号。' : '使用你的账号登录。'}</p>
 
         <div className="auth-tabs" role="tablist" aria-label="账号入口" onKeyDown={handleTabKeys}>
           <button
@@ -270,12 +266,12 @@ export function LoginPage({ notice, onAuthenticated }: LoginPageProps) {
             {error && <p className="error" role="alert">{error}</p>}
             <p className="auth-status" role="status" aria-live="polite">{info}</p>
             <button className="button button-primary login-button" type="submit" disabled={submitting}>
-              <span>{phase === 'registering' ? '正在创建账号…' : phase === 'logging-in' ? '正在登录…' : isRegister ? '注册并进入清单' : '登录我的清单'}</span>
+              <span>{phase === 'registering' ? '正在创建…' : phase === 'logging-in' ? '正在登录…' : isRegister ? '注册' : '登录'}</span>
               <span aria-hidden="true">→</span>
             </button>
           </form>
         </div>
-        <p className="auth-footnote">{isRegister ? '注册成功后自动登录，第一件小事由你来写。' : '还没有账号？点击「注册账号」就能开始。'}</p>
+        <p className="auth-footnote">{isRegister ? '已有账号？切换到「登录」。' : '还没有账号？切换到「注册账号」。'}</p>
       </section>
     </main>
   )

@@ -4,6 +4,86 @@
   padding: 24px 0 40px;
 }
 
+.workspace {
+  max-width: 1040px;
+}
+
+.workspace-card {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.progress-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.progress-strip progress {
+  flex: 1;
+  height: 22px;
+  appearance: none;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: var(--white);
+  overflow: hidden;
+}
+
+.progress-strip progress::-webkit-progress-bar {
+  background: var(--white);
+}
+
+.progress-strip progress::-webkit-progress-value {
+  background: repeating-linear-gradient(-45deg, var(--magenta) 0 10px, var(--blue) 10px 20px);
+  border-radius: 999px;
+}
+
+.progress-strip progress::-moz-progress-bar {
+  background: repeating-linear-gradient(-45deg, var(--magenta) 0 10px, var(--blue) 10px 20px);
+}
+
+.progress-strip strong {
+  min-width: 3.2em;
+  text-align: right;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--magenta);
+}
+
+.add-round {
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--magenta);
+  color: var(--white);
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.add-round:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.add-round:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.add-round:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ---------- 顶栏 ---------- */
 .topbar {
   display: flex;
@@ -554,8 +634,8 @@
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: 1.6fr 1fr;
-  gap: 28px;
+  grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.9fr);
+  gap: 24px;
   align-items: start;
 }
 
@@ -570,6 +650,17 @@
 .panel-heading h2 {
   font-size: 1.5rem;
   font-weight: 900;
+}
+
+.panel-heading h1 {
+  font-size: 1.7rem;
+  font-weight: 900;
+}
+
+.panel-summary {
+  margin-top: 6px;
+  font-weight: 700;
+  color: rgba(16, 16, 20, 0.65);
 }
 
 .panel-number {
@@ -626,19 +717,20 @@
   font-weight: 900;
 }
 
+.list-heading h2 {
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
 .list-heading span {
   font-weight: 900;
   color: var(--blue);
 }
 
 .all-done {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin-bottom: 14px;
   font-weight: 900;
-  color: var(--mint);
-  -webkit-text-stroke: 0.4px var(--ink);
+  color: var(--ink);
 }
 
 .todo-list {
@@ -669,6 +761,90 @@
 
 .todo.is-busy {
   opacity: 0.7;
+}
+
+.todo-check,
+.todo-check-placeholder {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  background: var(--white);
+}
+
+.todo-check {
+  appearance: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.todo-check:checked {
+  background: var(--mint);
+}
+
+.todo-check:checked::after {
+  content: '';
+  width: 12px;
+  height: 7px;
+  border-left: 3.5px solid var(--ink);
+  border-bottom: 3.5px solid var(--ink);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.todo-check:disabled {
+  cursor: not-allowed;
+}
+
+.todo-check-placeholder {
+  opacity: 0.4;
+}
+
+.todo-edit {
+  flex: 1;
+  min-width: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 6px 8px;
+  font-weight: 800;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.todo-edit:hover:not(:disabled) {
+  border-color: #cbd5e1;
+}
+
+.todo-edit:focus {
+  border-color: var(--magenta);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 46, 136, 0.15);
+}
+
+.todo-edit::placeholder {
+  color: rgba(16, 16, 20, 0.4);
+  font-weight: 600;
+}
+
+.todo-edit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.todo.completed .todo-edit {
+  color: rgba(16, 16, 20, 0.55);
+  text-decoration: line-through 3px var(--magenta);
+}
+
+.todo-empty {
+  list-style: none;
+  padding: 24px 8px;
+  text-align: center;
+  font-weight: 700;
+  color: rgba(16, 16, 20, 0.6);
 }
 
 .todo-title {
@@ -824,6 +1000,12 @@
   font-weight: 900;
 }
 
+.stats-panel h2 {
+  font-size: 1.2rem;
+  font-weight: 900;
+  margin-bottom: 14px;
+}
+
 .stats-heading span {
   font-size: 1.4rem;
   font-weight: 900;
@@ -915,6 +1097,25 @@
   margin-top: 12px;
   font-weight: 700;
   color: rgba(16, 16, 20, 0.75);
+}
+
+.progress-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.progress-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.progress-heading strong {
+  font-size: 1.4rem;
+  color: var(--magenta);
 }
 
 /* ---------- 响应式 ---------- */

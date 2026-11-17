@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { getMe, type User } from './api/auth'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { type User } from './api/auth'
+import { getBootstrap } from './api/bootstrap'
 import { ApiError } from './api/http'
-import { createTodo, deleteTodo, listTodos, updateTodo, type Todo } from './api/todos'
+import { createTodo, deleteTodo, updateTodo, type Todo } from './api/todos'
 import { LoginPage } from './components/LoginPage'
-import { TodoForm } from './components/TodoForm'
 import { TodoItem } from './components/TodoItem'
 import './App.css'
 
@@ -47,15 +47,18 @@ type EndSession = (session: Session, message?: string) => void
 function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: EndSession }) {
   const [user, setUser] = useState<User | null>(null)
   const [todos, setTodos] = useState<Todo[]>([])
-  const [newTitle, setNewTitle] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const [draftOpen, setDraftOpen] = useState(false)
+  const [draftTitle, setDraftTitle] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
   const pendingIdsRef = useRef(new Set<number>())
   const tempIdRef = useRef(-1)
+  const draftOpenRef = useRef(false)
+  const draftInputRef = useRef<HTMLInputElement>(null)
 
   const handleApiError = useCallback((err: unknown, controller: AbortController) => {
     if (controller.signal.aborted) return
@@ -71,14 +74,11 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     const controller = new AbortController()
     controllerRef.current = controller
 
-    Promise.all([
-      getMe(session.token, controller.signal),
-      listTodos(session.token, controller.signal),
-    ])
-      .then(([currentUser, items]) => {
+    getBootstrap(session.token, controller.signal)
+      .then((data) => {
         if (controller.signal.aborted) return
-        setUser(currentUser)
-        setTodos(items)
+        setUser(data.user)
+        setTodos(data.todos)
       })
       .catch((err: unknown) => handleApiError(err, controller))
       .finally(() => {
@@ -88,6 +88,10 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     // Each request keeps this controller, including across StrictMode effect restarts.
     return () => controller.abort()
   }, [session, handleApiError, loadAttempt])
+
+  useEffect(() => {
+    if (draftOpen) draftInputRef.current?.focus()
+  }, [draftOpen])
 
   function handleLogout() {
     controllerRef.current?.abort()
@@ -110,11 +114,33 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     setBusyIds(new Set(pendingIdsRef.current))
   }
 
-  async function handleAdd(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  function openDraft() {
+    if (!ready) return
+    if (draftOpenRef.current) {
+      draftInputRef.current?.focus()
+      return
+    }
+    draftOpenRef.current = true
+    setDraftTitle('')
+    setDraftOpen(true)
+  }
+
+  function cancelDraft() {
+    draftOpenRef.current = false
+    setDraftOpen(false)
+    setDraftTitle('')
+  }
+
+  async function commitDraft() {
+    if (!draftOpenRef.current) return
+    const title = draftTitle.trim()
+    if (!title) {
+      cancelDraft()
+      return
+    }
+
     const controller = controllerRef.current
-    const title = newTitle.trim()
-    if (!controller || controller.signal.aborted || loading || !user || !title) return
+    if (!controller || controller.signal.aborted || loading || !user) return
 
     const tempId = tempIdRef.current--
     const now = new Date().toISOString()
@@ -126,11 +152,13 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
       updated_at: now,
     }
 
+    draftOpenRef.current = false
+    setDraftOpen(false)
+    setDraftTitle('')
     markPending(tempId)
     setTodos((current) => [optimisticTodo, ...current])
-    setNewTitle('')
     setError('')
-    setFeedback('新任务已加入清单，开始行动吧！')
+    setFeedback('已添加')
 
     try {
       const todo = await createTodo(session.token, title, controller.signal)
@@ -139,7 +167,9 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     } catch (err) {
       if (controller.signal.aborted) return
       setTodos((current) => current.filter((item) => item.id !== tempId))
-      setNewTitle((current) => current ? current : title)
+      draftOpenRef.current = true
+      setDraftOpen(true)
+      setDraftTitle(title)
       setFeedback('')
       handleApiError(err, controller)
     } finally {
@@ -169,7 +199,7 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     setTodos((current) =>
       current.map((item) => item.id === todo.id ? { ...item, completed: nextCompleted } : item),
     )
-    setFeedback(nextCompleted ? '又搞定一件，做得漂亮！' : '任务已恢复为待完成。')
+    setFeedback(nextCompleted ? '已标记完成' : '已标记未完成')
 
     try {
       const updated = await updateTodo(session.token, todo.id, {
@@ -181,6 +211,32 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
       if (controller.signal.aborted) return
       setTodos((current) =>
         current.map((item) => item.id === todo.id ? { ...item, completed: todo.completed } : item),
+      )
+      setFeedback('')
+      handleApiError(err, controller)
+    } finally {
+      finishItemRequest(todo.id, controller)
+    }
+  }
+
+  async function handleRename(todo: Todo, title: string) {
+    if (todo.id < 0) return
+    const controller = startItemRequest(todo.id)
+    if (!controller) return
+
+    setTodos((current) =>
+      current.map((item) => item.id === todo.id ? { ...item, title } : item),
+    )
+
+    try {
+      const updated = await updateTodo(session.token, todo.id, { title }, controller.signal)
+      if (controller.signal.aborted) return
+      setTodos((current) => current.map((item) => item.id === updated.id ? updated : item))
+      setFeedback('已保存')
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setTodos((current) =>
+        current.map((item) => item.id === todo.id ? { ...item, title: todo.title } : item),
       )
       setFeedback('')
       handleApiError(err, controller)
@@ -204,7 +260,7 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
 
     try {
       await deleteTodo(session.token, id, controller.signal)
-      if (!controller.signal.aborted) setFeedback('任务已删除，给重要的事留点位置。')
+      if (!controller.signal.aborted) setFeedback('已删除')
     } catch (err) {
       if (controller.signal.aborted) return
       setTodos((current) => {
@@ -226,70 +282,81 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><span /></span>
-          <span>待办任务清单<small>MAKE IT HAPPEN.</small></span>
+          <span>待办任务清单</span>
         </div>
         <div className="account-bar">
-          <span className="account-name">{user ? `你好，${user.username}` : '正在打开你的清单…'}</span>
+          <span className="account-name">{user ? `当前账号：${user.username}` : '加载中…'}</span>
           <button className="button button-secondary logout" type="button" onClick={handleLogout}>退出登录</button>
         </div>
       </header>
 
-      <section className="workspace-hero" aria-labelledby="workspace-title">
-        <div>
-          <span className="sticker sticker-blue">我的待办 / MY TO-DO LIST</span>
-          <h1 id="workspace-title">计划很酷，<span className="title-highlight">行动更酷。</span></h1>
-          <p className="hero-description">把想做的事写下来，一件一件，变成「已完成」。</p>
+      <section className="todo-panel paper-panel workspace-card" aria-busy={loading}>
+        <div className="progress-strip">
+          <progress value={completed} max={todos.length || 1} aria-label="完成进度" />
+          <strong>{ready ? `${completion}%` : '—'}</strong>
+          <button className="add-round" type="button" onClick={openDraft} disabled={!ready} aria-label="新增待办">
+            <span aria-hidden="true">＋</span>
+          </button>
         </div>
-        <span className="comic-burst workspace-burst" aria-hidden="true">LET’S<br />GO!</span>
+
+        {error && <p className="error" role="alert">{error}</p>}
+        <p className="workspace-feedback" role="status" aria-live="polite">{feedback}</p>
+
+        {loading ? (
+          <div className="empty-state" role="status"><span className="loading-mark" aria-hidden="true" /><p>正在加载…</p></div>
+        ) : !ready ? (
+          <div className="empty-state"><p>加载失败。</p><button className="button button-secondary" type="button" onClick={handleRetryLoad}>重新加载</button></div>
+        ) : (
+          <ul className="todo-list">
+            {draftOpen && (
+              <li className="todo todo-draft">
+                <span className="todo-check-placeholder" aria-hidden="true" />
+                <input
+                  ref={draftInputRef}
+                  className="todo-edit"
+                  value={draftTitle}
+                  onChange={(event) => setDraftTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void commitDraft()
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault()
+                      cancelDraft()
+                    }
+                  }}
+                  onBlur={() => { void commitDraft() }}
+                  placeholder="输入待办内容"
+                  maxLength={200}
+                  aria-label="新待办内容"
+                />
+                <button
+                  type="button"
+                  className="button delete"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    cancelDraft()
+                  }}
+                  aria-label="取消新增"
+                >删除</button>
+              </li>
+            )}
+            {todos.length === 0 && !draftOpen && (
+              <li className="todo-empty">暂无待办</li>
+            )}
+            {todos.map((todo) => (
+              <TodoItem
+                key={`${todo.id}:${todo.title}`}
+                todo={todo}
+                busy={busyIds.has(todo.id)}
+                onToggle={handleToggle}
+                onDelete={handleDelete}
+                onRename={handleRename}
+              />
+            ))}
+          </ul>
+        )}
       </section>
-
-      <div className="workspace-grid">
-        <section className="todo-panel paper-panel" aria-labelledby="todo-panel-title" aria-busy={loading}>
-          <div className="panel-heading">
-            <div><p className="eyebrow">LESS WAITING. MORE DOING.</p><h2 id="todo-panel-title">今天，做点什么？</h2></div>
-            <span className="panel-number" aria-hidden="true">01</span>
-          </div>
-          <TodoForm value={newTitle} disabled={!ready} onChange={setNewTitle} onSubmit={handleAdd} />
-
-          {error && <p className="error" role="alert">{error}</p>}
-          <p className="workspace-feedback" role="status" aria-live="polite">{feedback}</p>
-
-          <div className="list-heading"><h3>行动清单</h3><span>{ready ? `${todos.length} 件事` : '准备中'}</span></div>
-          {loading ? (
-            <div className="empty-state" role="status"><span className="loading-mark" aria-hidden="true" /><h3>正在铺开你的清单…</h3><p>好计划，马上就来。</p></div>
-          ) : !ready ? (
-            <div className="empty-state"><span className="empty-mark" aria-hidden="true">!</span><h3>清单暂时没有加载成功</h3><p>请检查网络，再试一次。</p><button className="button button-secondary" type="button" onClick={handleRetryLoad}>重新加载</button></div>
-          ) : todos.length === 0 ? (
-            <div className="empty-state"><span className="empty-mark" aria-hidden="true">＋</span><span className="sticker sticker-mint">新的开始，无限可能</span><h3>第一件小事，就从这里开始。</h3><p>在上方写下一个待办，让今天动起来。</p></div>
-          ) : (
-            <>
-              {remaining === 0 && <p className="all-done"><span className="drawn-check" aria-hidden="true" />全部搞定！今天的你，值得一个大大的赞。</p>}
-              <ul className="todo-list">
-                {todos.map((todo) => <TodoItem key={todo.id} todo={todo} busy={busyIds.has(todo.id)} onToggle={handleToggle} onDelete={handleDelete} />)}
-              </ul>
-            </>
-          )}
-        </section>
-
-        <aside className="workspace-sidebar" aria-label="任务统计">
-          <section className="stats-panel paper-panel" aria-labelledby="stats-title">
-            <div className="stats-heading"><h2 id="stats-title">今日战报</h2><span aria-hidden="true">↗</span></div>
-            <div className="stats-grid">
-              <div className="stat stat-total"><span>全部任务</span><strong>{ready ? todos.length : '—'}</strong><small>TOTAL</small></div>
-              <div className="stat stat-pending"><span>等待行动</span><strong>{ready ? remaining : '—'}</strong><small>TO DO</small></div>
-              <div className="stat stat-done"><span>已经搞定</span><strong>{ready ? completed : '—'}</strong><small>DONE!</small></div>
-            </div>
-          </section>
-          <section className="progress-panel paper-panel" aria-labelledby="progress-title">
-            <span className="sticker sticker-blue">一点点，也很棒</span>
-            <h2 id="progress-title">每一小步，<br />都算数。</h2>
-            <div className="progress-caption"><span>完成进度</span><strong>{ready ? `${completion}%` : '—'}</strong></div>
-            <progress value={completed} max={todos.length || 1} aria-label="任务完成进度" />
-            <p>{!ready ? '准备好，就出发。' : todos.length === 0 ? '先写下一件小事，给行动一个起点。' : remaining === 0 ? '清单已清空待办，成就感拉满！' : `还有 ${remaining} 件小事，按自己的节奏来。`}</p>
-          </section>
-        </aside>
-      </div>
-      <footer className="page-footer"><span>少一点拖延，多一点搞定。</span><span>ONE THING AT A TIME.</span></footer>
     </main>
   )
 }

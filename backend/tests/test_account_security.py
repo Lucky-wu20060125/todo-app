@@ -87,6 +87,21 @@ class AccountSecurityTests(unittest.TestCase):
         self.assertEqual(login.status_code, 200)
         self.assertEqual(login.headers.get("cache-control"), "no-store")
 
+    def test_bootstrap_returns_only_current_users_data(self):
+        self.create_alice_todo()
+        response = self.client.get("/api/bootstrap", headers=self.alice)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["user"]["username"], "alice")
+        self.assertEqual([todo["title"] for todo in body["todos"]], ["Alice private task"])
+
+        bob = self.client.get("/api/bootstrap", headers=self.bob)
+        self.assertEqual(bob.status_code, 200)
+        self.assertEqual(bob.json()["todos"], [])
+
+    def test_bootstrap_requires_authentication(self):
+        self.assertEqual(self.client.get("/api/bootstrap").status_code, 401)
+
     def test_owner_can_update_and_delete_their_task(self):
         todo_id = self.create_alice_todo()
         response = self.client.patch(
