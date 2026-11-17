@@ -326,7 +326,35 @@
   border-radius: var(--radius);
   box-shadow: 8px 8px 0 var(--blue);
   padding: 30px;
-  transform: rotate(0.8deg);
+  transform: none;
+}
+
+.login-page-simple {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 24px;
+}
+
+.login-page-simple .auth-card {
+  width: min(460px, 100%);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-weight: 900;
+  font-size: 1rem;
+}
+
+.auth-brand small {
+  display: block;
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  color: var(--blue);
 }
 
 .card-heading {
@@ -405,6 +433,14 @@
 
 .field input:focus {
   background: #fff;
+}
+
+.field input:-webkit-autofill,
+.field input:-webkit-autofill:hover,
+.field input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--white) inset;
+  -webkit-text-fill-color: var(--ink);
+  transition: background-color 9999s ease-out;
 }
 
 .field input[aria-invalid='true'] {

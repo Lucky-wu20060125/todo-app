@@ -49,14 +49,13 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
   const [todos, setTodos] = useState<Todo[]>([])
   const [newTitle, setNewTitle] = useState('')
   const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
   const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
   const controllerRef = useRef<AbortController | null>(null)
-  const addingRef = useRef(false)
   const pendingIdsRef = useRef(new Set<number>())
+  const tempIdRef = useRef(-1)
 
   const handleApiError = useCallback((err: unknown, controller: AbortController) => {
     if (controller.signal.aborted) return
@@ -101,59 +100,89 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
     setLoadAttempt((value) => value + 1)
   }
 
+  function markPending(id: number) {
+    pendingIdsRef.current.add(id)
+    setBusyIds(new Set(pendingIdsRef.current))
+  }
+
+  function clearPending(id: number) {
+    pendingIdsRef.current.delete(id)
+    setBusyIds(new Set(pendingIdsRef.current))
+  }
+
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const controller = controllerRef.current
     const title = newTitle.trim()
-    if (!controller || controller.signal.aborted || loading || !user || !title || addingRef.current) return
+    if (!controller || controller.signal.aborted || loading || !user || !title) return
 
-    addingRef.current = true
-    setSubmitting(true)
+    const tempId = tempIdRef.current--
+    const now = new Date().toISOString()
+    const optimisticTodo: Todo = {
+      id: tempId,
+      title,
+      completed: false,
+      created_at: now,
+      updated_at: now,
+    }
+
+    markPending(tempId)
+    setTodos((current) => [optimisticTodo, ...current])
+    setNewTitle('')
     setError('')
-    setFeedback('')
+    setFeedback('新任务已加入清单，开始行动吧！')
+
     try {
       const todo = await createTodo(session.token, title, controller.signal)
       if (controller.signal.aborted) return
-      setTodos((current) => [todo, ...current])
-      setNewTitle('')
-      setFeedback('新任务已加入清单，开始行动吧！')
+      setTodos((current) => current.map((item) => item.id === tempId ? todo : item))
     } catch (err) {
+      if (controller.signal.aborted) return
+      setTodos((current) => current.filter((item) => item.id !== tempId))
+      setNewTitle((current) => current ? current : title)
+      setFeedback('')
       handleApiError(err, controller)
     } finally {
-      if (!controller.signal.aborted) {
-        addingRef.current = false
-        setSubmitting(false)
-      }
+      if (!controller.signal.aborted) clearPending(tempId)
     }
   }
 
   function startItemRequest(id: number): AbortController | null {
     const controller = controllerRef.current
     if (!controller || controller.signal.aborted || loading || !user || pendingIdsRef.current.has(id)) return null
-    pendingIdsRef.current.add(id)
-    setBusyIds(new Set(pendingIdsRef.current))
+    markPending(id)
     setError('')
     setFeedback('')
     return controller
   }
 
   function finishItemRequest(id: number, controller: AbortController) {
-    if (controller.signal.aborted) return
-    pendingIdsRef.current.delete(id)
-    setBusyIds(new Set(pendingIdsRef.current))
+    if (!controller.signal.aborted) clearPending(id)
   }
 
   async function handleToggle(todo: Todo) {
+    if (todo.id < 0) return
     const controller = startItemRequest(todo.id)
     if (!controller) return
+
+    const nextCompleted = !todo.completed
+    setTodos((current) =>
+      current.map((item) => item.id === todo.id ? { ...item, completed: nextCompleted } : item),
+    )
+    setFeedback(nextCompleted ? '又搞定一件，做得漂亮！' : '任务已恢复为待完成。')
+
     try {
       const updated = await updateTodo(session.token, todo.id, {
-        completed: !todo.completed,
+        completed: nextCompleted,
       }, controller.signal)
       if (controller.signal.aborted) return
       setTodos((current) => current.map((item) => item.id === updated.id ? updated : item))
-      setFeedback(updated.completed ? '又搞定一件，做得漂亮！' : '任务已恢复为待完成。')
     } catch (err) {
+      if (controller.signal.aborted) return
+      setTodos((current) =>
+        current.map((item) => item.id === todo.id ? { ...item, completed: todo.completed } : item),
+      )
+      setFeedback('')
       handleApiError(err, controller)
     } finally {
       finishItemRequest(todo.id, controller)
@@ -161,17 +190,29 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
   }
 
   async function handleDelete(id: number) {
-    const controller = startItemRequest(id)
-    if (!controller) return
+    if (id < 0) return
+    const controller = controllerRef.current
+    if (!controller || controller.signal.aborted || loading || !user) return
+
+    const index = todos.findIndex((item) => item.id === id)
+    if (index < 0) return
+    const removed = todos[index]
+
+    setTodos((current) => current.filter((item) => item.id !== id))
+    setError('')
+    setFeedback('')
+
     try {
       await deleteTodo(session.token, id, controller.signal)
-      if (controller.signal.aborted) return
-      setTodos((current) => current.filter((item) => item.id !== id))
-      setFeedback('任务已删除，给重要的事留点位置。')
+      if (!controller.signal.aborted) setFeedback('任务已删除，给重要的事留点位置。')
     } catch (err) {
+      if (controller.signal.aborted) return
+      setTodos((current) => {
+        const next = [...current]
+        next.splice(Math.min(index, next.length), 0, removed)
+        return next
+      })
       handleApiError(err, controller)
-    } finally {
-      finishItemRequest(id, controller)
     }
   }
 
@@ -208,7 +249,7 @@ function Workspace({ session, onSessionEnd }: { session: Session; onSessionEnd: 
             <div><p className="eyebrow">LESS WAITING. MORE DOING.</p><h2 id="todo-panel-title">今天，做点什么？</h2></div>
             <span className="panel-number" aria-hidden="true">01</span>
           </div>
-          <TodoForm value={newTitle} submitting={submitting} disabled={!ready} onChange={setNewTitle} onSubmit={handleAdd} />
+          <TodoForm value={newTitle} disabled={!ready} onChange={setNewTitle} onSubmit={handleAdd} />
 
           {error && <p className="error" role="alert">{error}</p>}
           <p className="workspace-feedback" role="status" aria-live="polite">{feedback}</p>
