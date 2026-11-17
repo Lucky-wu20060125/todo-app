@@ -1,7 +1,19 @@
 :root {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color: #0f172a;
-  background: #eef2ff;
+  --ink: #101014;
+  --paper: #ffd400;
+  --paper-deep: #f5b800;
+  --magenta: #ff2e88;
+  --blue: #2447f5;
+  --mint: #00c2a8;
+  --white: #fffdf5;
+  --shadow: 6px 6px 0 var(--ink);
+  --shadow-sm: 4px 4px 0 var(--ink);
+  --radius: 18px;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  color: var(--ink);
+  background: var(--paper);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -12,19 +24,44 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
   min-height: 100vh;
+}
+
+body {
   background:
-    radial-gradient(
-      circle at top left,
-      rgba(99, 102, 241, 0.16),
-      transparent 32rem
-    ),
-    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+    radial-gradient(circle, rgba(16, 16, 20, 0.14) 1.4px, transparent 1.5px) 0 0 / 18px 18px,
+    radial-gradient(circle, rgba(16, 16, 20, 0.08) 1.2px, transparent 1.3px) 9px 9px / 18px 18px,
+    linear-gradient(160deg, #ffd400 0%, #ffc400 55%, #ffb300 100%);
+  background-attachment: fixed;
 }
 
 button,
 input {
   font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 3px dashed var(--magenta);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }

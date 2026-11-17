@@ -11,9 +11,22 @@ export type TokenResponse = {
   token_type: string
 }
 
+export function register(
+  username: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<User> {
+  return request<User>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username: username.trim(), password }),
+    signal,
+  })
+}
+
 export function login(
   username: string,
   password: string,
+  signal?: AbortSignal,
 ): Promise<TokenResponse> {
   return request<TokenResponse>('/api/auth/login', {
     method: 'POST',
@@ -21,9 +34,10 @@ export function login(
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({ username, password }),
+    signal,
   })
 }
 
-export function getMe(token: string): Promise<User> {
-  return request<User>('/api/auth/me', {}, token)
+export function getMe(token: string, signal?: AbortSignal): Promise<User> {
+  return request<User>('/api/auth/me', { signal }, token)
 }
