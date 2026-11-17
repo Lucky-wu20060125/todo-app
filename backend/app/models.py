@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -11,6 +11,7 @@ class Todo(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200))
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     completed: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )

@@ -1,14 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import User
-from ..schemas import Token, UserRead
-from ..security import create_access_token, get_current_user, verify_password
+from ..schemas import Token, UserRead, UserRegister
+from ..security import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def register(payload: UserRegister, db: Session = Depends(get_db)):
+    if db.scalar(select(User).where(User.username == payload.username)) is not None:
+        raise HTTPException(status_code=409, detail="用户名已被使用")
+
+    user = User(username=payload.username, hashed_password=hash_password(payload.password))
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="用户名已被使用") from None
+    db.refresh(user)
+    return user
 
 
 @router.post("/login", response_model=Token)
