@@ -1,4 +1,4 @@
-import { request } from './http'
+import { invoke } from '@tauri-apps/api/core'
 
 export type TodoColor = 'none' | 'red' | 'green' | 'yellow'
 
@@ -11,70 +11,34 @@ export type Todo = {
   updated_at: string
 }
 
-export function listTodos(token: string, signal?: AbortSignal): Promise<Todo[]> {
-  return request<Todo[]>('/api/todos', { signal }, token)
+export type TodoUpdate = {
+  title?: string
+  completed?: boolean
+  color?: TodoColor
 }
 
-export function createTodo(
-  token: string,
-  title: string,
-  signal?: AbortSignal,
-): Promise<Todo> {
-  return request<Todo>(
-    '/api/todos',
-    {
-      method: 'POST',
-      body: JSON.stringify({ title }),
-      signal,
-    },
-    token,
-  )
+export function errorMessage(error: unknown): string {
+  if (typeof error === 'string' && error.trim()) return error
+  if (error instanceof Error && error.message) return error.message
+  return '操作失败，请稍后重试。'
 }
 
-export function updateTodo(
-  token: string,
-  id: number,
-  payload: { title?: string; completed?: boolean; color?: TodoColor },
-  signal?: AbortSignal,
-): Promise<Todo> {
-  return request<Todo>(
-    `/api/todos/${id}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-      signal,
-    },
-    token,
-  )
+export function listTodos(): Promise<Todo[]> {
+  return invoke<Todo[]>('list_todos')
 }
 
-export function reorderTodos(
-  token: string,
-  ids: number[],
-  signal?: AbortSignal,
-): Promise<Todo[]> {
-  return request<Todo[]>(
-    '/api/todos/order',
-    {
-      method: 'PUT',
-      body: JSON.stringify({ ids }),
-      signal,
-    },
-    token,
-  )
+export function createTodo(title: string): Promise<Todo> {
+  return invoke<Todo>('create_todo', { title })
 }
 
-export function deleteTodo(
-  token: string,
-  id: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  return request<void>(
-    `/api/todos/${id}`,
-    {
-      method: 'DELETE',
-      signal,
-    },
-    token,
-  )
+export function updateTodo(id: number, payload: TodoUpdate): Promise<Todo> {
+  return invoke<Todo>('update_todo', { id, patch: payload })
+}
+
+export function reorderTodos(ids: number[]): Promise<Todo[]> {
+  return invoke<Todo[]>('reorder_todos', { ids })
+}
+
+export function deleteTodo(id: number): Promise<void> {
+  return invoke<void>('delete_todo', { id })
 }
