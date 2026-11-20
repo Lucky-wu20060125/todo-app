@@ -205,6 +205,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_completed(&self) -> Result<usize, String> {
+        let conn = self.lock()?;
+        conn.execute("DELETE FROM todos WHERE completed = 1", [])
+            .map_err(db_error)
+    }
+
     pub fn reorder(&self, ids: &[i64]) -> Result<Vec<Todo>, String> {
         let mut conn = self.lock()?;
         let existing_ids: HashSet<i64> = {
@@ -391,6 +397,37 @@ mod tests {
         assert_eq!(db.list().unwrap().len(), 2);
 
         assert!(db.reorder(&[first.id, second.id, 999_999]).is_err());
+    }
+
+    #[test]
+    fn deletes_completed_todos_in_one_call() {
+        let db = memory_db();
+        let first = db.create("A").unwrap();
+        let second = db.create("B").unwrap();
+        let third = db.create("C").unwrap();
+
+        db.update(
+            second.id,
+            TodoPatch {
+                completed: Some(true),
+                ..TodoPatch::default()
+            },
+        )
+        .unwrap();
+        db.update(
+            third.id,
+            TodoPatch {
+                completed: Some(true),
+                ..TodoPatch::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(db.delete_completed().unwrap(), 2);
+        let remaining = db.list().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, first.id);
+        assert_eq!(db.delete_completed().unwrap(), 0);
     }
 
     #[test]

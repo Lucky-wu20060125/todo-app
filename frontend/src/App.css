@@ -1339,3 +1339,502 @@ body.is-sorting * {
     text-align: center;
   }
 }
+
+/* ---------- 单卡面主窗口 ---------- */
+.main-window {
+  width: 100vw;
+  height: 100vh;
+  padding: 10px;
+  display: flex;
+  background: transparent;
+}
+
+.main-window .workspace-card {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 18px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.card-drag-region,
+.card-drag-space {
+  cursor: grab;
+  user-select: none;
+}
+
+.card-drag-region:active,
+.card-drag-space:active {
+  cursor: grabbing;
+}
+
+.card-drag-space {
+  flex: 1;
+  align-self: stretch;
+  min-height: 36px;
+}
+
+.card-close {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 1.3rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.card-close:hover {
+  background: var(--magenta);
+  color: var(--white);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 10px;
+  flex-shrink: 0;
+}
+
+.trash-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: var(--mint);
+  color: var(--ink);
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.trash-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trash-button strong {
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.trash-button:hover:not(:disabled) {
+  background: #39ddc5;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.trash-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.todo-row {
+  position: relative;
+  list-style: none;
+  border-radius: 16px;
+}
+
+.todo-row .todo {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.todo-row .todo.is-swiping {
+  transition: none;
+}
+
+.todo-row.is-removing .todo,
+.todo-row.is-swiping-away .todo {
+  transform: translateX(112%) !important;
+  opacity: 0;
+  transition: transform 0.23s ease, opacity 0.23s ease !important;
+  pointer-events: none;
+}
+
+.todo-row.is-removing,
+.todo-row.is-swiping-away {
+  pointer-events: none;
+}
+
+.todo-swipe-underlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-right: 20px;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background:
+    repeating-linear-gradient(135deg, #ff2e88 0 12px, #ff5a9f 12px 24px);
+  color: var(--white);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.todo-swipe-underlay svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.todo-draft-text {
+  min-height: 1.45em;
+}
+
+.todo-draft-text:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(16, 16, 20, 0.38);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.confirm-dialog {
+  width: min(380px, 100%);
+  padding: 24px;
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--white);
+  box-shadow: 8px 8px 0 var(--blue);
+}
+
+.confirm-dialog h2 {
+  margin-bottom: 10px;
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.confirm-dialog p {
+  margin-bottom: 18px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: rgba(16, 16, 20, 0.76);
+}
+
+.confirm-dialog strong {
+  color: var(--magenta);
+  font-size: 1.1rem;
+}
+
+.button-danger {
+  background: var(--magenta);
+  color: var(--white);
+}
+
+/* ---------- 小幽灵品牌与卡面缩放 ---------- */
+.main-window {
+  position: relative;
+}
+
+.main-window .workspace-card {
+  background: #faf6e6;
+}
+
+.ghost-logo {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  filter: drop-shadow(3px 3px 0 rgba(16, 16, 20, 0.92));
+}
+
+.resize-handle {
+  position: absolute;
+  z-index: 80;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.resize-north {
+  top: 6px;
+  left: 14px;
+  right: 14px;
+  height: 10px;
+  cursor: n-resize;
+}
+
+.resize-south {
+  bottom: 6px;
+  left: 14px;
+  right: 14px;
+  height: 10px;
+  cursor: s-resize;
+}
+
+.resize-east {
+  top: 14px;
+  right: 6px;
+  bottom: 14px;
+  width: 10px;
+  cursor: e-resize;
+}
+
+.resize-west {
+  top: 14px;
+  left: 6px;
+  bottom: 14px;
+  width: 10px;
+  cursor: w-resize;
+}
+
+.resize-north-west {
+  top: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  cursor: nw-resize;
+}
+
+.resize-north-east {
+  top: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  cursor: ne-resize;
+}
+
+.resize-south-west {
+  bottom: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  cursor: sw-resize;
+}
+
+.resize-south-east {
+  bottom: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  cursor: se-resize;
+}
+
+@media (max-width: 420px), (max-height: 520px) {
+  .main-window {
+    padding: 6px;
+  }
+
+  .main-window .workspace-card {
+    padding: 10px 10px 8px;
+    border-width: 2px;
+    border-radius: 15px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .card-header {
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .brand {
+    gap: 6px;
+    font-size: 0.95rem;
+  }
+
+  .ghost-logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    filter: none;
+  }
+
+  .card-drag-space {
+    min-height: 28px;
+  }
+
+  .card-close {
+    width: 30px;
+    height: 30px;
+    border-width: 2px;
+    border-radius: 8px;
+    font-size: 1.05rem;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  .progress-meta {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 5px;
+    margin-bottom: 4px;
+    font-size: 0.65rem;
+  }
+
+  .progress-strip {
+    gap: 7px;
+    margin-bottom: 7px;
+  }
+
+  .progress-strip progress {
+    height: 18px;
+    border-width: 2px;
+  }
+
+  .progress-strip strong {
+    min-width: 2.8em;
+    font-size: 0.88rem;
+  }
+
+  .add-round {
+    width: 34px;
+    height: 34px;
+    border-width: 2px;
+    font-size: 1.1rem;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  .list-toolbar {
+    margin-bottom: 6px;
+  }
+
+  .trash-button {
+    gap: 6px;
+    padding: 5px 8px;
+    border-width: 2px;
+    border-radius: 9px;
+    font-size: 0.75rem;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  .trash-button svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .trash-button strong {
+    min-width: 17px;
+    height: 17px;
+    font-size: 0.64rem;
+  }
+
+  .todo-list {
+    gap: 8px;
+    padding: 2px 4px 4px 2px;
+  }
+
+  .todo {
+    gap: 8px;
+    padding: 9px 10px;
+    border-width: 2px;
+    border-radius: 11px;
+    box-shadow: 2px 2px 0 var(--ink);
+  }
+
+  .todo-check,
+  .todo-check-placeholder {
+    width: 22px;
+    height: 22px;
+    border-width: 2px;
+    border-radius: 6px;
+  }
+
+  .todo-title-text {
+    padding: 2px;
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+
+  .todo-swipe-underlay {
+    border-width: 2px;
+    font-size: 0.8rem;
+  }
+
+  .error {
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    border-width: 2px;
+    font-size: 0.75rem;
+  }
+
+  .empty-state {
+    padding: 18px 10px;
+    border-width: 2px;
+  }
+
+  .confirm-dialog {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 330px) {
+  .brand {
+    font-size: 0.85rem;
+  }
+
+  .ghost-logo {
+    width: 27px;
+    height: 27px;
+  }
+
+  .card-close {
+    width: 28px;
+    height: 28px;
+  }
+
+  .progress-meta {
+    font-size: 0.6rem;
+  }
+}
+
+@media (max-height: 340px) {
+  .progress-meta {
+    display: none;
+  }
+
+  .card-header {
+    margin-bottom: 4px;
+  }
+
+  .progress-strip {
+    margin-bottom: 5px;
+  }
+
+  .list-toolbar {
+    margin-bottom: 4px;
+  }
+}

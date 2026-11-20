@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -10,12 +11,15 @@ import {
 } from 'react'
 import type { Todo } from '../api/todos'
 
-const LONG_PRESS_MS = 280
-const MOVE_TOLERANCE = 8
+const AXIS_THRESHOLD = 7
+const SWIPE_THRESHOLD = 96
+
+type GestureMode = 'swipe' | 'drag' | null
 
 type TodoItemProps = {
   todo: Todo
   busy: boolean
+  removing: boolean
   canDrag: boolean
   onToggle: (todo: Todo) => void
   onDelete: (id: number) => void
@@ -26,9 +30,18 @@ type TodoItemProps = {
   onDragEnd: (cancelled: boolean) => void
 }
 
+function SwipeTrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v6M14 11v6" />
+    </svg>
+  )
+}
+
 export function TodoItem({
   todo,
   busy,
+  removing,
   canDrag,
   onToggle,
   onDelete,
@@ -39,12 +52,63 @@ export function TodoItem({
   onDragEnd,
 }: TodoItemProps) {
   const textRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLLIElement>(null)
   const submittedRef = useRef(todo.title)
   const suppressClickRef = useRef(false)
-  const pressTimerRef = useRef<number | null>(null)
   const pressRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
-  const draggingRef = useRef(false)
+  const modeRef = useRef<GestureMode>(null)
+  const offsetRef = useRef(0)
+  const gestureFinishedRef = useRef(false)
+  const dragMoveRef = useRef(onDragMove)
+  const dragEndRef = useRef(onDragEnd)
+  const [offset, setOffset] = useState(0)
+  const [swiping, setSwiping] = useState(false)
+  const [swipeRemoving, setSwipeRemoving] = useState(false)
   const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    dragMoveRef.current = onDragMove
+    dragEndRef.current = onDragEnd
+  }, [onDragMove, onDragEnd])
+
+  const completeDrag = useCallback((cancelled: boolean) => {
+    if (gestureFinishedRef.current) return
+    gestureFinishedRef.current = true
+    pressRef.current = null
+    modeRef.current = null
+    setDragging(false)
+    dragEndRef.current(cancelled)
+    if (!cancelled) {
+      suppressClickRef.current = true
+      window.setTimeout(() => { suppressClickRef.current = false }, 350)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!dragging) return
+
+    function handleMove(event: PointerEvent) {
+      if (gestureFinishedRef.current) return
+      dragMoveRef.current(event.clientY)
+    }
+
+    function handleFinish() {
+      completeDrag(false)
+    }
+
+    function handleCancel() {
+      completeDrag(true)
+    }
+
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleFinish)
+    window.addEventListener('pointercancel', handleCancel)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleFinish)
+      window.removeEventListener('pointercancel', handleCancel)
+    }
+  }, [dragging, completeDrag])
 
   useEffect(() => {
     submittedRef.current = todo.title
@@ -55,16 +119,8 @@ export function TodoItem({
   }, [todo.title])
 
   useEffect(() => () => {
-    if (pressTimerRef.current !== null) window.clearTimeout(pressTimerRef.current)
     document.body.classList.remove('is-sorting')
   }, [])
-
-  function cancelPressTimer() {
-    if (pressTimerRef.current !== null) {
-      window.clearTimeout(pressTimerRef.current)
-      pressTimerRef.current = null
-    }
-  }
 
   function commitTitle() {
     const element = textRef.current
@@ -111,7 +167,6 @@ export function TodoItem({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    cancelPressTimer()
     if (event.key === 'Enter') {
       event.preventDefault()
       commitTitle()
@@ -124,61 +179,136 @@ export function TodoItem({
     }
   }
 
+  function blurEditor() {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+    window.getSelection()?.removeAllRanges()
+  }
+
+  function resetGesture() {
+    pressRef.current = null
+    modeRef.current = null
+    offsetRef.current = 0
+    setOffset(0)
+    setSwiping(false)
+    setDragging(false)
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLLIElement>) {
-    if (document.activeElement === textRef.current) commitTitle()
-    if (!canDrag || event.button !== 0 || !event.isPrimary) return
+    if (event.button !== 0 || !event.isPrimary) return
+    if (busy || removing || swipeRemoving) return
     if (event.target instanceof Element && event.target.closest('input, button')) return
 
-    cancelPressTimer()
-    pressRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+    pressRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    }
+    modeRef.current = null
+    gestureFinishedRef.current = false
     event.currentTarget.setPointerCapture(event.pointerId)
-
-    pressTimerRef.current = window.setTimeout(() => {
-      pressTimerRef.current = null
-      const press = pressRef.current
-      if (!press) return
-      draggingRef.current = true
-      suppressClickRef.current = true
-      setDragging(true)
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-      window.getSelection()?.removeAllRanges()
-      onDragStart(todo, press.y)
-    }, LONG_PRESS_MS)
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLLIElement>) {
     const press = pressRef.current
     if (!press || event.pointerId !== press.pointerId) return
-    if (!draggingRef.current) {
-      const distance = Math.hypot(event.clientX - press.x, event.clientY - press.y)
-      if (distance > MOVE_TOLERANCE) cancelPressTimer()
+
+    const deltaX = event.clientX - press.x
+    const deltaY = event.clientY - press.y
+
+    if (modeRef.current === null) {
+      const horizontal = Math.abs(deltaX)
+      const vertical = Math.abs(deltaY)
+      if (horizontal > AXIS_THRESHOLD && horizontal > vertical * 1.15) {
+        modeRef.current = 'swipe'
+        setSwiping(true)
+        const nextOffset = Math.max(0, deltaX)
+        offsetRef.current = nextOffset
+        suppressClickRef.current = true
+        setOffset(nextOffset)
+        blurEditor()
+        event.preventDefault()
+      } else if (
+        canDrag
+        && vertical > AXIS_THRESHOLD
+        && vertical > horizontal * 1.15
+      ) {
+        modeRef.current = 'drag'
+        setDragging(true)
+        blurEditor()
+        suppressClickRef.current = true
+        onDragStart(todo, event.clientY)
+        dragMoveRef.current(event.clientY)
+        event.preventDefault()
+      }
       return
     }
-    event.preventDefault()
-    onDragMove(event.clientY)
+
+    if (modeRef.current === 'swipe') {
+      const nextOffset = Math.max(0, deltaX)
+      offsetRef.current = nextOffset
+      setOffset(nextOffset)
+      event.preventDefault()
+    } else if (modeRef.current === 'drag') {
+      onDragMove(event.clientY)
+      event.preventDefault()
+    }
   }
 
   function finishPointer(event: ReactPointerEvent<HTMLLIElement>, cancelled: boolean) {
     const press = pressRef.current
     if (!press || event.pointerId !== press.pointerId) return
-    cancelPressTimer()
+
     pressRef.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
-    if (!draggingRef.current) return
-    draggingRef.current = false
-    setDragging(false)
-    onDragEnd(cancelled)
-    window.setTimeout(() => { suppressClickRef.current = false }, 400)
+
+    const mode = modeRef.current
+    modeRef.current = null
+
+    if (cancelled) {
+      if (mode === 'drag') {
+        completeDrag(true)
+      } else {
+        resetGesture()
+      }
+      return
+    }
+
+    if (mode === 'drag') {
+      completeDrag(false)
+      return
+    }
+
+    if (mode === 'swipe') {
+      const width = rowRef.current?.offsetWidth ?? window.innerWidth
+      const shouldDelete = offsetRef.current > SWIPE_THRESHOLD || offsetRef.current > width * 0.35
+      setSwiping(false)
+      if (shouldDelete) {
+        suppressClickRef.current = true
+        setSwipeRemoving(true)
+        offsetRef.current = 0
+        setOffset(0)
+        window.setTimeout(() => onDelete(todo.id), 230)
+      } else {
+        offsetRef.current = 0
+        setOffset(0)
+      }
+      return
+    }
+
+    // A plain click keeps the native contentEditable caret behavior.
   }
 
   return (
     <li
-      className={`todo color-${todo.color}${todo.completed ? ' completed' : ''}${busy ? ' is-busy' : ''}${dragging ? ' is-dragging' : ''}`}
+      ref={rowRef}
+      className={`todo-row${removing ? ' is-removing' : ''}${swipeRemoving ? ' is-swiping-away' : ''}`}
       aria-busy={busy}
       data-todo-id={todo.id}
-      title="长按拖动排序，右键更换颜色，点击文字编辑"
+      title="按住上下拖动排序，向右滑动删除，右键更换颜色"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={(event) => finishPointer(event, false)}
@@ -191,37 +321,37 @@ export function TodoItem({
       }}
       onContextMenu={(event) => onContextMenu(todo, event)}
     >
-      <input
-        type="checkbox"
-        className="todo-check"
-        checked={todo.completed}
-        disabled={busy}
-        onChange={() => onToggle(todo)}
-        aria-label={`将「${todo.title}」标记为${todo.completed ? '未完成' : '已完成'}`}
-      />
+      <div className="todo-swipe-underlay" aria-hidden="true">
+        <SwipeTrashIcon />
+        <span>删除</span>
+      </div>
       <div
-        ref={textRef}
-        className="todo-title-text"
-        role="textbox"
-        aria-multiline={false}
-        aria-label={`编辑 ${todo.title}`}
-        contentEditable={!busy}
-        suppressContentEditableWarning
-        spellCheck={false}
-        onInput={limitLength}
-        onPaste={handlePaste}
-        onKeyDown={handleKeyDown}
-        onBlur={commitTitle}
-      >{todo.title}</div>
-      <button
-        type="button"
-        className="button delete"
-        disabled={busy}
-        onClick={() => onDelete(todo.id)}
-        aria-label={`删除 ${todo.title}`}
+        className={`todo color-${todo.color}${todo.completed ? ' completed' : ''}${busy ? ' is-busy' : ''}${dragging ? ' is-dragging' : ''}${swiping ? ' is-swiping' : ''}`}
+        style={offset ? { transform: `translateX(${offset}px)` } : undefined}
       >
-        删除
-      </button>
+        <input
+          type="checkbox"
+          className="todo-check"
+          checked={todo.completed}
+          disabled={busy}
+          onChange={() => onToggle(todo)}
+          aria-label={`将「${todo.title}」标记为${todo.completed ? '未完成' : '已完成'}`}
+        />
+        <div
+          ref={textRef}
+          className="todo-title-text"
+          role="textbox"
+          aria-multiline={false}
+          aria-label={`编辑 ${todo.title}`}
+          contentEditable={!busy}
+          suppressContentEditableWarning
+          spellCheck={false}
+          onInput={limitLength}
+          onPaste={handlePaste}
+          onKeyDown={handleKeyDown}
+          onBlur={commitTitle}
+        >{todo.title}</div>
+      </div>
     </li>
   )
 }

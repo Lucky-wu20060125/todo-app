@@ -65,3 +65,17 @@ p {
     scroll-behavior: auto !important;
   }
 }
+
+html[data-window='main'],
+html[data-window='main'] body,
+html[data-window='main'] #root {
+  background: transparent;
+}
+
+html[data-window='main'] body {
+  overflow: hidden;
+}
+
+html[data-window='main'] #root {
+  height: 100vh;
+}

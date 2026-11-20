@@ -42,3 +42,7 @@ export function reorderTodos(ids: number[]): Promise<Todo[]> {
 export function deleteTodo(id: number): Promise<void> {
   return invoke<void>('delete_todo', { id })
 }
+
+export function deleteCompletedTodos(): Promise<number> {
+  return invoke<number>('delete_completed_todos')
+}

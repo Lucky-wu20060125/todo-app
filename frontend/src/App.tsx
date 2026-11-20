@@ -1,6 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
+import { closeMain } from './api/desktop'
 import {
   createTodo,
+  deleteCompletedTodos,
   deleteTodo,
   errorMessage,
   listTodos,
@@ -9,6 +19,9 @@ import {
   type Todo,
   type TodoColor,
 } from './api/todos'
+import { ConfirmDialog } from './components/ConfirmDialog'
+import { GhostLogo } from './components/GhostLogo'
+import { ResizeHandles } from './components/ResizeHandles'
 import { TodoItem } from './components/TodoItem'
 import './App.css'
 
@@ -19,6 +32,36 @@ type ToggleJob = {
   sentVersion: number
   running: boolean
   timer: number | null
+}
+
+function orderCompletedLast(list: Todo[]): Todo[] {
+  return [...list].sort((left, right) => Number(left.completed) - Number(right.completed))
+}
+
+function moveForCompletion(list: Todo[], id: number, completed: boolean): Todo[] {
+  const index = list.findIndex((item) => item.id === id)
+  if (index < 0) return list
+  const item = list[index]
+  const rest = list.filter((entry) => entry.id !== id)
+  const nextItem = { ...item, completed }
+
+  if (completed) {
+    return [...rest, nextItem]
+  }
+
+  let insertAt = 0
+  for (let position = 0; position < rest.length; position += 1) {
+    if (!rest[position].completed) insertAt = position + 1
+  }
+  return [...rest.slice(0, insertAt), nextItem, ...rest.slice(insertAt)]
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v6M14 11v6" />
+    </svg>
+  )
 }
 
 function App() {
@@ -32,10 +75,13 @@ function App() {
   const [draftTitle, setDraftTitle] = useState('')
   const [contextMenu, setContextMenu] = useState<{ todo: Todo; x: number; y: number } | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
+  const [confirmBulkOpen, setConfirmBulkOpen] = useState(false)
+  const [bulkRemoving, setBulkRemoving] = useState(false)
 
   const tempIdRef = useRef(-1)
   const draftOpenRef = useRef(false)
-  const draftInputRef = useRef<HTMLInputElement>(null)
+  const draftRestoreRef = useRef('')
+  const draftInputRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const todosRef = useRef<Todo[]>([])
   const completedRef = useRef(new Map<number, boolean>())
@@ -70,8 +116,9 @@ function App() {
     listTodos()
       .then((data) => {
         if (!active) return
-        setTodos(data)
-        completedRef.current = new Map(data.map((todo) => [todo.id, todo.completed]))
+        const ordered = orderCompletedLast(data)
+        setTodos(ordered)
+        completedRef.current = new Map(ordered.map((todo) => [todo.id, todo.completed]))
       })
       .catch((err: unknown) => {
         if (!active) return
@@ -88,7 +135,19 @@ function App() {
   }, [loadAttempt])
 
   useEffect(() => {
-    if (draftOpen) draftInputRef.current?.focus()
+    if (!draftOpen) return
+    const element = draftInputRef.current
+    if (!element) return
+    if (draftRestoreRef.current) {
+      element.textContent = draftRestoreRef.current
+    }
+    element.focus()
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    range.collapse(false)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
   }, [draftOpen])
 
   function handleRetryLoad() {
@@ -96,6 +155,10 @@ function App() {
     setLoadFailed(false)
     setError('')
     setLoadAttempt((value) => value + 1)
+  }
+
+  function handleCloseMain() {
+    void closeMain()
   }
 
   function markPending(id: number) {
@@ -115,30 +178,48 @@ function App() {
   }
 
   function openDraft() {
-    if (!ready) return
+    if (!ready || bulkRemoving) return
     if (draftOpenRef.current) {
       draftInputRef.current?.focus()
       return
     }
     draftOpenRef.current = true
+    draftRestoreRef.current = ''
     setDraftTitle('')
     setDraftOpen(true)
   }
 
   function cancelDraft() {
     draftOpenRef.current = false
+    draftRestoreRef.current = ''
     setDraftOpen(false)
     setDraftTitle('')
   }
 
+  function handleDraftInput(event: FormEvent<HTMLDivElement>) {
+    const element = event.currentTarget
+    let text = element.textContent ?? ''
+    if (text.length > 200) {
+      text = text.slice(0, 200)
+      element.textContent = text
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      range.collapse(false)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    }
+    setDraftTitle(text)
+  }
+
   async function commitDraft() {
     if (!draftOpenRef.current) return
-    const title = draftTitle.trim()
+    const title = draftTitle.replace(/\r?\n/g, ' ').trim().slice(0, 200)
     if (!title) {
       cancelDraft()
       return
     }
-    if (!ready) return
+    if (!ready || bulkRemoving) return
 
     const tempId = tempIdRef.current--
     const now = new Date().toISOString()
@@ -167,6 +248,7 @@ function App() {
       if (!mountedRef.current) return
       setTodos((current) => current.filter((item) => item.id !== tempId))
       draftOpenRef.current = true
+      draftRestoreRef.current = title
       setDraftOpen(true)
       setDraftTitle(title)
       setError(errorMessage(err))
@@ -176,15 +258,13 @@ function App() {
   }
 
   function handleToggle(todo: Todo) {
-    if (todo.id < 0 || loading || loadFailed) return
+    if (todo.id < 0 || loading || loadFailed || bulkRemoving) return
 
     const current = todosRef.current.find((item) => item.id === todo.id) ?? todo
     const nextCompleted = !(completedRef.current.get(todo.id) ?? current.completed)
     completedRef.current.set(todo.id, nextCompleted)
 
-    setTodos((currentTodos) =>
-      currentTodos.map((item) => item.id === todo.id ? { ...item, completed: nextCompleted } : item),
-    )
+    setTodos((currentTodos) => moveForCompletion(currentTodos, todo.id, nextCompleted))
     setError('')
 
     let job = toggleJobsRef.current.get(todo.id)
@@ -230,11 +310,11 @@ function App() {
         job.confirmed = updated.completed
         if (job.version === version) {
           completedRef.current.set(id, updated.completed)
-          setTodos((current) => current.map((item) =>
+          setTodos((current) => orderCompletedLast(current.map((item) =>
             item.id === id
               ? { ...item, completed: updated.completed, updated_at: updated.updated_at }
               : item,
-          ))
+          )))
         } else {
           setTodos((current) => current.map((item) =>
             item.id === id ? { ...item, updated_at: updated.updated_at } : item,
@@ -252,9 +332,9 @@ function App() {
       }
       const confirmed = job.confirmed
       completedRef.current.set(id, confirmed)
-      setTodos((current) =>
-        current.map((item) => item.id === id ? { ...item, completed: confirmed } : item),
-      )
+      setTodos((current) => orderCompletedLast(current.map((item) =>
+        item.id === id ? { ...item, completed: confirmed } : item,
+      )))
       if (toggleJobsRef.current.get(id) === job) {
         toggleJobsRef.current.delete(id)
       }
@@ -265,7 +345,7 @@ function App() {
   }
 
   async function handleRename(todo: Todo, title: string) {
-    if (todo.id < 0 || title === todo.title || loading || loadFailed) return
+    if (todo.id < 0 || title === todo.title || loading || loadFailed || bulkRemoving) return
 
     setTodos((current) =>
       current.map((item) => item.id === todo.id ? { ...item, title } : item),
@@ -313,7 +393,7 @@ function App() {
       setTodos((currentTodos) => {
         const next = [...currentTodos]
         next.splice(Math.min(index, next.length), 0, removed)
-        return next
+        return orderCompletedLast(next)
       })
       completedRef.current.set(id, removed.completed)
       setError(errorMessage(err))
@@ -322,7 +402,7 @@ function App() {
 
   async function handleColor(todo: Todo, color: TodoColor) {
     setContextMenu(null)
-    if (todo.id < 0 || todo.color === color || loading || loadFailed) return
+    if (todo.id < 0 || todo.color === color || loading || loadFailed || bulkRemoving) return
 
     setTodos((current) =>
       current.map((item) => item.id === todo.id ? { ...item, color } : item),
@@ -345,8 +425,37 @@ function App() {
     }
   }
 
+  async function handleDeleteCompleted() {
+    setConfirmBulkOpen(false)
+    if (bulkRemoving || completedCount === 0) return
+
+    const snapshot = todosRef.current
+    setBulkRemoving(true)
+    setError('')
+
+    await new Promise((resolve) => window.setTimeout(resolve, 220))
+    if (!mountedRef.current) return
+
+    try {
+      await deleteCompletedTodos()
+      if (!mountedRef.current) return
+      const remaining = todosRef.current.filter((item) => !item.completed)
+      todosRef.current = remaining
+      completedRef.current = new Map(remaining.map((item) => [item.id, item.completed]))
+      setTodos(remaining)
+    } catch (err) {
+      if (!mountedRef.current) return
+      todosRef.current = snapshot
+      completedRef.current = new Map(snapshot.map((item) => [item.id, item.completed]))
+      setTodos(snapshot)
+      setError(errorMessage(err))
+    } finally {
+      if (mountedRef.current) setBulkRemoving(false)
+    }
+  }
+
   function handleDragStart(todo: Todo, clientY: number) {
-    if (loading || loadFailed || todo.id < 0) return
+    if (loading || loadFailed || bulkRemoving || todo.id < 0 || todo.completed) return
     if (todosRef.current.some((item) => item.id < 0)) return
     dragStartTodosRef.current = todosRef.current
     draggingIdRef.current = todo.id
@@ -367,6 +476,7 @@ function App() {
     const current = todosRef.current
     const from = current.findIndex((item) => item.id === id)
     if (from < 0) return
+    const pendingCount = current.filter((item) => !item.completed).length
 
     let target = rows.length
     for (let index = 0; index < rows.length; index += 1) {
@@ -376,7 +486,7 @@ function App() {
         break
       }
     }
-    const insertAt = target > from ? target - 1 : target
+    const insertAt = Math.min(target > from ? target - 1 : target, pendingCount)
     if (insertAt === from) return
 
     const next = [...current]
@@ -423,7 +533,7 @@ function App() {
       .then(async () => {
         const ordered = await reorderTodos(ids)
         if (!mountedRef.current || version !== reorderVersionRef.current) return
-        setTodos(ordered)
+        setTodos(orderCompletedLast(ordered))
       })
       .catch((err: unknown) => {
         if (!mountedRef.current || version !== reorderVersionRef.current) return
@@ -466,23 +576,39 @@ function App() {
     })
   }
 
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      void commitDraft()
+      event.currentTarget.blur()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelDraft()
+    }
+  }
+
   const remaining = todos.filter((todo) => !todo.completed).length
   const completed = todos.length - remaining
+  const completedCount = completed
   const ready = !loading && !loadFailed
   const hasTemp = todos.some((todo) => todo.id < 0)
   const completion = todos.length ? Math.round(completed / todos.length * 100) : 0
 
   return (
-    <main className="site-shell workspace">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true"><span /></span>
-          <span>待办任务清单</span>
-        </div>
-        <span className="edition-label">本机</span>
-      </header>
-
+    <main className="main-window">
+      <ResizeHandles />
       <section className="todo-panel paper-panel workspace-card" aria-busy={loading}>
+        <header className="card-header">
+          <div className="brand card-drag-region" data-tauri-drag-region>
+            <GhostLogo />
+            <span>小鬼清单</span>
+          </div>
+          <span className="card-drag-space" data-tauri-drag-region aria-hidden="true" />
+          <button className="card-close" type="button" onClick={handleCloseMain} aria-label="收起待办卡面">
+            ×
+          </button>
+        </header>
+
         <div className="progress-meta">
           <span>总数 {ready ? todos.length : '—'}</span>
           <span>已完成 {ready ? completed : '—'}</span>
@@ -491,8 +617,22 @@ function App() {
         <div className="progress-strip">
           <progress value={completed} max={todos.length || 1} aria-label="完成进度" />
           <strong>{ready ? `${completion}%` : '—'}</strong>
-          <button className="add-round" type="button" onClick={openDraft} disabled={!ready} aria-label="新增待办">
+          <button className="add-round" type="button" onClick={openDraft} disabled={!ready || bulkRemoving} aria-label="新增待办">
             <span aria-hidden="true">＋</span>
+          </button>
+        </div>
+
+        <div className="list-toolbar">
+          <button
+            className="trash-button"
+            type="button"
+            onClick={() => setConfirmBulkOpen(true)}
+            disabled={completedCount === 0 || bulkRemoving || !ready}
+            aria-label={`一键清理 ${completedCount} 条已完成任务`}
+          >
+            <TrashIcon />
+            <span>一键清理</span>
+            {completedCount > 0 && <strong>{completedCount}</strong>}
           </button>
         </div>
 
@@ -507,34 +647,20 @@ function App() {
             {draftOpen && (
               <li className="todo todo-draft">
                 <span className="todo-check-placeholder" aria-hidden="true" />
-                <input
+                <div
                   ref={draftInputRef}
-                  className="todo-edit"
-                  value={draftTitle}
-                  onChange={(event) => setDraftTitle(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      void commitDraft()
-                    } else if (event.key === 'Escape') {
-                      event.preventDefault()
-                      cancelDraft()
-                    }
-                  }}
-                  onBlur={() => { void commitDraft() }}
-                  placeholder="输入待办内容"
-                  maxLength={200}
+                  className="todo-title-text todo-draft-text"
+                  role="textbox"
+                  aria-multiline={false}
                   aria-label="新待办内容"
+                  contentEditable
+                  suppressContentEditableWarning
+                  spellCheck={false}
+                  data-placeholder="输入待办内容"
+                  onInput={handleDraftInput}
+                  onKeyDown={handleDraftKeyDown}
+                  onBlur={() => { void commitDraft() }}
                 />
-                <button
-                  type="button"
-                  className="button delete"
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    cancelDraft()
-                  }}
-                  aria-label="取消新增"
-                >删除</button>
               </li>
             )}
             {todos.length === 0 && !draftOpen && (
@@ -545,7 +671,8 @@ function App() {
                 key={todo.id}
                 todo={todo}
                 busy={busyIds.has(todo.id)}
-                canDrag={ready && todo.id > 0 && !hasTemp}
+                removing={bulkRemoving && todo.completed}
+                canDrag={ready && todo.id > 0 && !hasTemp && !todo.completed && !bulkRemoving}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
                 onRename={handleRename}
@@ -594,6 +721,14 @@ function App() {
             ))}
           </div>
         </>
+      )}
+
+      {confirmBulkOpen && (
+        <ConfirmDialog
+          count={completedCount}
+          onCancel={() => setConfirmBulkOpen(false)}
+          onConfirm={() => { void handleDeleteCompleted() }}
+        />
       )}
     </main>
   )

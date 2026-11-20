@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "待办任务清单",
+  "productName": "小鬼清单",
   "version": "0.1.0",
   "identifier": "com.wuzhi.todo",
   "build": {
@@ -10,19 +10,7 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "待办任务清单",
-        "width": 1000,
-        "height": 760,
-        "minWidth": 720,
-        "minHeight": 540,
-        "center": true,
-        "resizable": true,
-        "fullscreen": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

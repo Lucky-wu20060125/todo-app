@@ -1,0 +1,324 @@
+html[data-window='pet'],
+html[data-window='pet'] body,
+html[data-window='pet'] #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+.ghost-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  --ghost-filter: brightness(1);
+  --ghost-hand: #fff4df;
+}
+
+.ghost-shell[data-color='yellow'] {
+  --ghost-filter: sepia(0.2) saturate(1.08);
+  --ghost-hand: #fff0b8;
+}
+
+.ghost-shell[data-color='green'] {
+  --ghost-filter: hue-rotate(62deg) saturate(0.72) brightness(1.03);
+  --ghost-hand: #e4f8df;
+}
+
+.ghost-shell[data-color='red'] {
+  --ghost-filter: hue-rotate(330deg) saturate(1.08);
+  --ghost-hand: #ffe0df;
+}
+
+.ghost-stage {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 26% 5% 6%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+}
+
+.ghost-stage:active {
+  cursor: grabbing;
+}
+
+.ghost-sway {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform-origin: 50% 88%;
+  transition: transform 0.24s cubic-bezier(0.22, 0.8, 0.32, 1);
+}
+
+.ghost-sway.is-left {
+  transform: rotate(-8deg) translateX(-5px);
+}
+
+.ghost-sway.is-right {
+  transform: rotate(8deg) translateX(5px);
+}
+
+.ghost-figure {
+  position: relative;
+  height: 100%;
+  max-width: 100%;
+  aspect-ratio: 773 / 801;
+  flex-shrink: 0;
+  transform-origin: 50% 92%;
+  animation: ghost-float 3.4s ease-in-out infinite;
+}
+
+.ghost-figure.is-jumping {
+  animation: ghost-jump 0.36s ease-in-out 2;
+}
+
+.ghost-artwork {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  filter: var(--ghost-filter);
+  transition: filter 1.55s ease;
+}
+
+.ghost-shell.is-holding .ghost-artwork,
+.ghost-shell:active .ghost-artwork {
+  filter:
+    var(--ghost-filter)
+    brightness(1.16)
+    drop-shadow(0 0 9px rgba(255, 255, 255, 1))
+    drop-shadow(0 0 25px rgba(255, 255, 255, 0.98))
+    drop-shadow(0 0 50px rgba(255, 255, 255, 0.94));
+}
+
+@keyframes ghost-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes ghost-jump {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  38% {
+    transform: translateY(-18px) rotate(-3deg) scale(1.02);
+  }
+  70% {
+    transform: translateY(-3px) rotate(2deg) scale(0.99);
+  }
+}
+
+.ghost-shadow {
+  position: absolute;
+  bottom: -2%;
+  left: 50%;
+  z-index: 0;
+  width: 64%;
+  height: 5%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: rgba(47, 29, 35, 0.2);
+  filter: blur(5px);
+}
+
+.ghost-eye {
+  position: absolute;
+  top: 31.1%;
+  z-index: 4;
+  width: 8.1%;
+  height: 11.6%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.ghost-eye-left {
+  left: 32.6%;
+}
+
+.ghost-eye-right {
+  left: 62.6%;
+}
+
+.ghost-pupil {
+  position: relative;
+  width: 52%;
+  height: 57%;
+  border-radius: 50%;
+  background: rgba(54, 23, 18, 0.9);
+  box-shadow: inset 2px 2px 3px rgba(255, 255, 255, 0.13);
+  transform: translate(var(--eye-x, 0px), var(--eye-y, 0px));
+  transition: transform 0.1s linear;
+}
+
+.ghost-pupil::after {
+  content: '';
+  position: absolute;
+  top: 12%;
+  right: 14%;
+  width: 31%;
+  height: 24%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.ghost-bubble {
+  position: absolute;
+  top: 2%;
+  left: 50%;
+  z-index: 8;
+  box-sizing: border-box;
+  width: 92%;
+  padding: 8px 11px;
+  border: 2px solid rgba(83, 48, 55, 0.76);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 5px 16px rgba(71, 40, 46, 0.18);
+  color: #4d2931;
+  font-size: clamp(0.56rem, 4.8vw, 0.76rem);
+  font-weight: 800;
+  line-height: 1.4;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: ghost-bubble-pop 0.22s ease-out;
+}
+
+.ghost-bubble::before {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 30%;
+  width: 13px;
+  height: 13px;
+  border-right: 2px solid rgba(83, 48, 55, 0.76);
+  border-bottom: 2px solid rgba(83, 48, 55, 0.76);
+  border-radius: 0 0 5px 0;
+  background: #fff;
+  transform: rotate(45deg);
+}
+
+@keyframes ghost-bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.ghost-shell.is-dragging .ghost-figure {
+  animation: ghost-float 0.9s ease-in-out infinite;
+}
+
+.ghost-shell-edge {
+  cursor: pointer;
+}
+
+.ghost-peek {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.ghost-figure.peek-ghost {
+  position: absolute;
+  top: 2px;
+  width: 112px;
+  height: auto;
+  max-width: none;
+  animation: ghost-peek-bob 2.2s ease-in-out infinite;
+}
+
+.ghost-edge-left .peek-ghost {
+  left: -25px;
+}
+
+.ghost-edge-right .peek-ghost {
+  right: -25px;
+}
+
+.peek-ghost .ghost-shadow {
+  display: none;
+}
+
+@keyframes ghost-peek-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(1deg);
+  }
+}
+
+.peek-hand {
+  position: absolute;
+  z-index: 6;
+  width: 23px;
+  height: 14px;
+  border: 2px solid rgba(93, 51, 47, 0.7);
+  border-radius: 9px 10px 8px 7px;
+  background: var(--ghost-hand);
+  box-shadow: 2px 3px 7px rgba(66, 37, 42, 0.2);
+}
+
+.ghost-edge-left .peek-hand {
+  left: 4px;
+  transform: rotate(-15deg);
+}
+
+.ghost-edge-right .peek-hand {
+  right: 4px;
+  transform: rotate(15deg);
+}
+
+.peek-hand-top {
+  top: 66%;
+}
+
+.peek-hand-bottom {
+  top: 83%;
+}
+
+.peek-hand::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: -12px;
+  width: 14px;
+  height: 8px;
+  border: 2px solid rgba(93, 51, 47, 0.7);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--ghost-hand);
+}
+
+.ghost-edge-right .peek-hand::before {
+  left: auto;
+  right: -12px;
+  border-left: none;
+  border-right: 2px solid rgba(93, 51, 47, 0.7);
+  border-radius: 0 8px 8px 0;
+}
